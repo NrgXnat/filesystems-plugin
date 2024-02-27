@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cat:Catalog ID="DATA" xmlns:arc="http://nrg.wustl.edu/arc" xmlns:cat="http://nrg.wustl.edu/catalog" xmlns:pipe="http://nrg.wustl.edu/pipe" xmlns:prov="http://www.nbirn.net/prov" xmlns:scr="http://nrg.wustl.edu/scr" xmlns:val="http://nrg.wustl.edu/val" xmlns:wrk="http://nrg.wustl.edu/workflow" xmlns:xdat="http://nrg.wustl.edu/security" xmlns:xnat="http://nrg.wustl.edu/xnat" xmlns:xnat_a="http://nrg.wustl.edu/xnat_assessments" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<cat:metaFields>
+    <cat:metaField name="PROJECT">project</cat:metaField>
+	<cat:metaField name="AUDIT">8902:Wed Jun 05 22:16:04 GMT 2019=Added:1</cat:metaField>
+</cat:metaFields>
+<cat:entries>
+	<cat:entry ID="621ad63a8e2c6e8c98584284265858e3_user-agent" URI="http://httpbin.org/user-agent" cachePath="621ad63a8e2c6e8c98584284265858e3_user-agent" createdBy="admin" createdEventId="8902" createdTime="2019-06-05T22:16:04.252" digest="882f75b5fda563ff7fc87b04c3116de3" name="user-agent">
+		<cat:metaFields>
+			<cat:metaField name="SIZE"></cat:metaField>
+		</cat:metaFields>
+	</cat:entry>
+</cat:entries>
+</cat:Catalog>

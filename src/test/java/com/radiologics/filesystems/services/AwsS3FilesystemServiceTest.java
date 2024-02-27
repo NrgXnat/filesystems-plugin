@@ -1,0 +1,727 @@
+// Copyright 2019 Radiologics, Inc
+// Developer: Kate Alpert <kate@radiologics.com>
+
+package com.radiologics.filesystems.services;
+
+import com.amazonaws.AmazonServiceException;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.model.GetObjectMetadataRequest;
+import com.amazonaws.services.s3.model.GetObjectRequest;
+import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.transfer.TransferManagerBuilder;
+import com.amazonaws.services.s3.transfer.TransferProgress;
+import com.radiologics.filesystems.aws.s3.model.auto.AwsS3Config;
+import com.radiologics.filesystems.aws.s3.services.AwsS3ConfigEntityService;
+import com.radiologics.filesystems.aws.s3.services.AwsS3FilesystemService;
+import com.radiologics.filesystems.config.*;
+import com.radiologics.filesystems.exceptions.*;
+import com.radiologics.filesystems.model.auto.ProjectFilesystemSettings;
+import com.radiologics.filesystems.utils.TestingUtils;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang.exception.ExceptionUtils;
+import org.junit.*;
+import org.junit.rules.ExpectedException;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.nrg.framework.exceptions.NotFoundException;
+import org.nrg.xdat.model.CatEntryI;
+import org.nrg.xdat.preferences.SiteConfigPreferences;
+import org.nrg.xnat.services.XnatAppInfo;
+import org.nrg.xnat.utils.CatalogUtils;
+import org.powermock.api.mockito.PowerMockito;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
+import org.powermock.modules.junit4.PowerMockRunnerDelegate;
+import org.powermock.reflect.Whitebox;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.concurrent.ThreadPoolExecutorFactoryBean;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.*;
+
+import static com.radiologics.filesystems.aws.s3.model.auto.AwsS3Config.WRITE_CHECK_FILENAME;
+import static com.radiologics.filesystems.config.SharedStrings.*;
+import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.*;
+import static org.hamcrest.io.FileMatchers.*;
+import static org.junit.Assert.*;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Matchers.eq;
+
+@Slf4j
+@RunWith(PowerMockRunner.class)
+//@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
+@PowerMockRunnerDelegate(Parameterized.class)
+@Parameterized.UseParametersRunnerFactory(SpringJUnit4ClassRunnerFactory.class)
+@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
+@PrepareForTest({
+        AmazonS3ClientBuilder.class, TransferManagerBuilder.class, BasicAWSCredentials.class,
+        AWSStaticCredentialsProvider.class, AwsS3FilesystemService.class, TransferProgress.class,
+        MockAwsS3.class, AwsS3Config.class
+})
+@ContextConfiguration(classes = {TestConfig.class, AwsS3MockTestConfig.class})
+public class AwsS3FilesystemServiceTest {
+    @Parameterized.Parameters(name = "isPrimary={0}")
+    public static Collection<Boolean> primaryOrShadow() {
+        return Arrays.asList(true, false);
+    }
+    @Parameterized.Parameter
+    public boolean isPrimary;
+
+    @Autowired private SiteConfigPreferences siteConfigPreferences;
+    @Autowired private AwsS3ConfigEntityService awsS3ConfigEntityService;
+    @Autowired private ProjectFilesystemSettingsEntityService projectFilesystemSettingsEntityService;
+    @Autowired private AwsS3Config awsArchiverConfig;
+    @Autowired private AwsS3Config awsSubdirConfig;
+    @Autowired private AwsS3Config awsReadonlyConfig;
+    @Autowired private AwsS3Config awsAltConfig;
+    @Autowired private FilesystemService defaultFilesystemService;
+    @Autowired
+    @Qualifier("filesystemsThreadPoolExecutorFactoryBean")
+    private ThreadPoolExecutorFactoryBean filesystemsThreadPoolExecutorFactoryBean;
+
+    @Mock private XnatAppInfo mockAppInfo;
+    @Mock private AwsS3FilesystemService shadowAwsS3FilesystemService;
+
+    private MockAwsS3 mockAwsS3;
+    private AwsS3Config awsArchiverConfigWithId;
+    private AwsS3Config awsAltConfigWithId;
+    private List<Long> idsToRemove = new ArrayList<>();
+    private ProjectFilesystemSettingsService projectFilesystemSettingsService;
+    private AwsS3FilesystemService awsS3FilesystemService;
+
+    @Rule
+    public ExpectedException exceptionRule = ExpectedException.none();
+
+    @Before
+    public void setup() throws Exception {
+        mockAwsS3 = new MockAwsS3(); //need to reset each time
+
+        // make dirs
+        Files.createDirectories(Paths.get(writableArchivePath));
+
+        // swap primary or shadow
+        Mockito.when(mockAppInfo.isPrimaryNode()).thenReturn(isPrimary);
+
+        // create aws fs service
+        awsS3FilesystemService = new AwsS3FilesystemService(mockAppInfo, awsS3ConfigEntityService, siteConfigPreferences,
+                filesystemsThreadPoolExecutorFactoryBean);
+
+        // create some configs
+        awsArchiverConfigWithId = awsS3ConfigEntityService.createOrUpdateFromPojo(awsArchiverConfig, true,
+                getAwsS3FilesystemService());
+        idsToRemove.add(awsArchiverConfigWithId.getId());
+        awsAltConfigWithId = awsS3ConfigEntityService.createOrUpdateFromPojo(awsAltConfig, true,
+                getAwsS3FilesystemService());
+        idsToRemove.add(awsAltConfigWithId.getId());
+
+        // create project settings service
+        projectFilesystemSettingsService = new ProjectFilesystemSettingsServiceImpl(projectFilesystemSettingsEntityService,
+                Arrays.asList(defaultFilesystemService, awsS3FilesystemService),
+                Arrays.asList(awsS3ConfigEntityService));
+        TestingUtils.setupProjectSettings(projectFilesystemSettingsService, awsArchiverConfigWithId);
+    }
+
+    @After
+    public void cleanup() throws IOException {
+        FileUtils.deleteDirectory(new File(writableArchivePath));
+    }
+
+    private AwsS3FilesystemService getAwsS3FilesystemService() {
+        // This will mimic updates occurring "live" on the primary node and via refreshCache on the shadow
+        return isPrimary ? awsS3FilesystemService : shadowAwsS3FilesystemService;
+    }
+
+    private void removeConfig(long id) {
+        awsS3ConfigEntityService.deleteById(id, getAwsS3FilesystemService());
+    }
+
+    private void clearFileystemConfigs() {
+        for (Long id : idsToRemove) {
+            removeConfig(id);
+        }
+    }
+
+    private void setProjectArchiver(String project, AwsS3Config archiver) throws Exception {
+        ProjectFilesystemSettings pfs;
+        try {
+            pfs = projectFilesystemSettingsService.getSettingsForProject(project);
+        } catch (NotFoundException e) {
+            pfs = new ProjectFilesystemSettings(project);
+        }
+        pfs.setArchiverConfig(archiver);
+        projectFilesystemSettingsService.createOrUpdateFromPojo(pfs);
+    }
+
+    private long forceRefreshCache() {
+        // force refresh cache quickly
+        long orig = Whitebox.getInternalState(awsS3FilesystemService, "cacheRefreshIntervalMs");
+        Whitebox.setInternalState(awsS3FilesystemService, "cacheRefreshIntervalMs", 1);
+        return orig;
+    }
+
+    @Test
+    @DirtiesContext
+    public void testSupportsUrl() throws Exception {
+        assertThat(awsS3FilesystemService.supportsUrl(awsGoodUrl, supportedProject, true), is(true));
+        assertThat(awsS3FilesystemService.supportsUrl(awsGoodUrl2, supportedProject, true), is(true));
+        assertThat(awsS3FilesystemService.supportsUrl(awsMissingUrl, supportedProject, true), is(false));
+        assertThat(awsS3FilesystemService.supportsUrl(awsMissingUrl, supportedProject, false), is(true));
+        assertThat(awsS3FilesystemService.supportsUrl(badUrl, supportedProject, false), is(false));
+        assertThat(awsS3FilesystemService.supportsUrl(nonUrl, supportedProject, false), is(false));
+
+        assertThat(awsS3FilesystemService.supportsUrl(awsGoodUrl, otherProject, true), is(false));
+        assertThat(awsS3FilesystemService.supportsUrl(awsGoodUrl2, otherProject, true), is(true));
+        assertThat(awsS3FilesystemService.supportsUrl(awsMissingUrl, otherProject, true), is(false));
+        assertThat(awsS3FilesystemService.supportsUrl(awsMissingUrl, otherProject, false), is(true));
+        assertThat(awsS3FilesystemService.supportsUrl(badUrl, otherProject, false), is(false));
+        assertThat(awsS3FilesystemService.supportsUrl(nonUrl, otherProject, false), is(false));
+
+        assertThat(awsS3FilesystemService.supportsUrl(readonlyBucketUrl, supportedProject, false), is(false));
+        assertThat(awsS3FilesystemService.supportsUrl(readonlyBucketUrl, otherProject, false), is(false));
+        awsReadonlyConfig.addPermittedProject(supportedProject);
+        awsS3ConfigEntityService.createOrUpdateFromPojo(awsReadonlyConfig, true, getAwsS3FilesystemService());
+        assertThat(awsS3FilesystemService.supportsUrl(readonlyBucketUrl, supportedProject, true), is(false));
+        assertThat(awsS3FilesystemService.supportsUrl(readonlyBucketUrl, supportedProject, false), is(true));
+        assertThat(awsS3FilesystemService.supportsUrl(readonlyBucketUrl, otherProject, false), is(false));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testExpiredPerms() throws Exception {
+        // fake scenario where creds "go bad", e.g. perms changed on bucket
+        PowerMockito.whenNew(BasicAWSCredentials.class).withArguments(eq(fakeAccessKey), anyString())
+                .thenReturn(mockAwsS3.mockCredBad);
+        forceRefreshCache();
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage(awsS3FilesystemService.getClass().getName() +
+                " cannot archive files from project " + supportedProject);
+        awsS3FilesystemService.makeUriFromLocal(Paths.get(siteConfigPreferences.getArchivePath(), testFileName).toString(),
+                supportedProject);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushFile() {
+        try {
+            awsS3FilesystemService.pushFile(awsGoodUrlFile, awsGoodUrl, supportedProject, false);
+            Mockito.verify(mockAwsS3.mockS3client, Mockito.times(1)).getObjectMetadata(fakeBucketName,
+                    awsGoodUrlFilePath);
+            Mockito.verify(mockAwsS3.mockS3transfer, Mockito.times(1)).upload(eq(fakeBucketName),
+                    eq(awsGoodUrlFilePath), any(FileInputStream.class), any(ObjectMetadata.class));
+        } catch (Exception e) {
+            fail("Push file threw an exception when it shouldn't have: " + e.getMessage() + " " +
+                    ExceptionUtils.getStackTrace(e));
+        }
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushFileNew() {
+        try {
+            awsS3FilesystemService.pushFile(awsGoodUrlFile, awsGoodUrl, supportedProject, true);
+            Mockito.verify(mockAwsS3.mockS3client, Mockito.never()).getObjectMetadata(fakeBucketName,
+                    awsGoodUrlFilePath);
+            Mockito.verify(mockAwsS3.mockS3transfer, Mockito.times(1)).upload(eq(fakeBucketName),
+                    eq(awsGoodUrlFilePath), any(FileInputStream.class), any(ObjectMetadata.class));
+        } catch (Exception e) {
+            fail("Push file threw an exception when it shouldn't have: " + e.getMessage() + " " +
+                    ExceptionUtils.getStackTrace(e));
+        }
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushFileWhenInactive() throws Exception {
+        clearFileystemConfigs();
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage(awsS3FilesystemService.getClass().getName() +
+                " does not have an active config that can serve this request");
+        awsS3FilesystemService.pushFile(awsGoodUrlFile, awsGoodUrl, supportedProject, false);
+        Mockito.verify(mockAwsS3.mockS3transfer, Mockito.never()).upload(eq(fakeBucketName),
+                eq(awsGoodUrlFilePath), any(FileInputStream.class), any(ObjectMetadata.class));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushFileAfterLosingWritePermsOnArchiver() throws Exception {
+        Mockito.when(mockAwsS3.mockS3client.putObject(eq(awsArchiverConfig.getBucketName()),
+                eq(WRITE_CHECK_FILENAME), any(InputStream.class), any(ObjectMetadata.class)))
+                .thenThrow(new AmazonServiceException(permissionsMsg));
+        forceRefreshCache();
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage("Unable to write files to filesystem " +
+                awsArchiverConfig.getFilesystemType() + " config " + awsArchiverConfig.getName());
+        awsS3FilesystemService.pushFile(awsGoodUrlFile, awsGoodUrl, supportedProject, false);
+        Mockito.verify(mockAwsS3.mockS3client, Mockito.never()).putObject(eq(fakeBucketName),
+                eq(awsGoodUrlFilePath), any(FileInputStream.class), any(ObjectMetadata.class));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushFileToBadUrl() throws Exception {
+        for (String unsupportedUrl : Arrays.asList(badUrl, nonUrl)) {
+            try {
+                awsS3FilesystemService.pushFile(awsGoodUrlFile, unsupportedUrl, supportedProject, false);
+            } catch (UnsupportedUrlException e) {
+                assertThat(e.getMessage(), is(awsS3FilesystemService.getClass().getName() + " does not support URL " +
+                        unsupportedUrl));
+            }
+        }
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushFileToUnpermittedConfig() throws Exception {
+        awsS3ConfigEntityService.createOrUpdateFromPojo(awsReadonlyConfig,
+                true, getAwsS3FilesystemService());
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage("Project " + supportedProject + " is not permitted to use filesystem " +
+                        awsReadonlyConfig.getFilesystemType() + " config " + awsReadonlyConfig.getName());
+        awsS3FilesystemService.pushFile(awsGoodUrlFile, readonlyBucketUrl, supportedProject, false);
+        Mockito.verify(mockAwsS3.mockS3transfer, Mockito.never()).upload(eq(fakeBucketNameReadonly),
+                eq(awsGoodUrlFilePath), any(FileInputStream.class), any(ObjectMetadata.class));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushFileToNewUrl() {
+        try {
+            awsS3FilesystemService.pushFile(awsGoodUrlFile, awsMissingUrl2, supportedProject, false);
+            Mockito.verify(mockAwsS3.mockS3client, Mockito.times(1)).getObjectMetadata(fakeBucketName,
+                    missingFile);
+            Mockito.verify(mockAwsS3.mockS3transfer, Mockito.times(1)).upload(eq(fakeBucketName),
+                    eq(missingFile), any(FileInputStream.class), any(ObjectMetadata.class));
+        } catch (Exception e) {
+            fail("testPushFileToNewUrl threw an exception when it shouldn't have: " + e.getMessage() + " " +
+                    ExceptionUtils.getStackTrace(e));
+        }
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushNonExistentFile() throws Exception {
+        File nonexistFile = Paths.get(writableArchivePath, "nonexist.txt").toFile();
+        exceptionRule.expect(FileNotFoundException.class);
+        exceptionRule.expectMessage(nonexistFile.getAbsolutePath() + " doesn't exist");
+        awsS3FilesystemService.pushFile(nonexistFile, awsGoodUrl, supportedProject, false);
+        Mockito.verify(mockAwsS3.mockS3transfer, Mockito.never()).upload(eq(fakeBucketName),
+                eq(awsGoodUrlFilePath), any(FileInputStream.class), any(ObjectMetadata.class));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushBadEtag() throws Exception {
+        exceptionRule.expect(RemoteApiException.class);
+        exceptionRule.expectMessage("Upload of " + awsGoodUrlFile.getAbsolutePath() +
+                " to " + etagUrl + " failed");
+        awsS3FilesystemService.pushFile(awsGoodUrlFile, etagUrl, supportedProject, false);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushApiException() throws Exception {
+        exceptionRule.expect(RemoteApiException.class);
+        exceptionRule.expectMessage(exceptionMsg);
+        awsS3FilesystemService.pushFile(awsGoodUrlFile, exceptionThrowerUrl2, supportedProject, false);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushNotWritableException() throws Exception {
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage("Unable to write files to filesystem " + awsAltConfig.getFilesystemType() + " config " + awsAltConfig.getName());
+        awsS3FilesystemService.pushFile(awsGoodUrlFile, awsGoodUrl2, supportedProject, false);
+        Mockito.verify(mockAwsS3.mockS3transfer, Mockito.never()).upload(eq(altBucketName),
+                eq(awsGoodUrlFilePath), any(FileInputStream.class), any(ObjectMetadata.class));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushWrongArchiverException() throws Exception {
+        awsAltConfigWithId.setArchiver(true);
+        awsS3ConfigEntityService.createOrUpdateFromPojo(awsAltConfigWithId, true,
+                awsS3FilesystemService);
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage("Project " + supportedProject + " can only archive to " + awsArchiverConfig.getFilesystemType() + " config " +
+                awsArchiverConfig.getName() + "; this request would attempt to write to " + awsAltConfigWithId.getName());
+        awsS3FilesystemService.pushFile(awsGoodUrlFile, awsGoodUrl2, supportedProject, false);
+        Mockito.verify(mockAwsS3.mockS3transfer, Mockito.never()).upload(eq(altBucketName),
+                eq(awsGoodUrlFilePath), any(FileInputStream.class), any(ObjectMetadata.class));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPushWithoutArchiverException() throws Exception {
+        awsArchiverConfigWithId.addPermittedProject(otherProject);
+        awsS3ConfigEntityService.createOrUpdateFromPojo(awsArchiverConfigWithId, true,
+                awsS3FilesystemService);
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage(awsS3FilesystemService.getClass().getName() +
+                " cannot archive files from project " + otherProject);
+        awsS3FilesystemService.pushFile(awsGoodUrlFile, awsGoodUrl, otherProject, false);
+        Mockito.verify(mockAwsS3.mockS3transfer, Mockito.never()).upload(eq(fakeBucketName),
+                eq(awsGoodUrlFilePath), any(FileInputStream.class), any(ObjectMetadata.class));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testDeleteFile() {
+        try {
+            awsS3FilesystemService.deleteFile(awsGoodUrl, supportedProject);
+            Mockito.verify(mockAwsS3.mockS3client, Mockito.times(1)).deleteObject(eq(fakeBucketName),
+                    eq(awsGoodUrlFilePath));
+        } catch (Exception e) {
+            fail("Delete file threw an exception when it shouldn't have: " + e.getMessage() + " " +
+                    ExceptionUtils.getStackTrace(e));
+        }
+    }
+
+    @Test
+    @DirtiesContext
+    public void testDeleteFileWhenInactive() throws Exception {
+        clearFileystemConfigs();
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage(awsS3FilesystemService.getClass().getName() +
+                " does not have an active config that can serve this request");
+        awsS3FilesystemService.deleteFile(awsGoodUrl, supportedProject);
+        Mockito.verify(mockAwsS3.mockS3client, Mockito.never()).deleteObject(anyString(), anyString());
+    }
+
+    @Test
+    @DirtiesContext
+    public void testDeleteFileToBadOrMissingUrl() throws Exception {
+        for (String unsupportedUrl : Arrays.asList(badUrl, readonlyBucketUrl, nonUrl, awsMissingUrl2)) {
+            try {
+                awsS3FilesystemService.deleteFile(unsupportedUrl, supportedProject);
+                Mockito.verify(mockAwsS3.mockS3client, Mockito.never()).deleteObject(anyString(), anyString());
+            } catch (UnsupportedUrlException e) {
+                assertThat(e.getMessage(), is(awsS3FilesystemService.getClass().getName() +
+                        " does not support URL " + unsupportedUrl));
+                continue;
+            } catch (InactiveUnpermittedOrNotWritableFilesystemException e) {
+                // bc awsReadonlyConfig not added
+                assertThat(e.getMessage(), is(awsS3FilesystemService.getClass().getName() +
+                        " does not have an active config that can serve this request"));
+                continue;
+            }
+            fail("Bad or missing url didn't throw exception: " + unsupportedUrl);
+        }
+    }
+
+    @Test
+    @DirtiesContext
+    public void testDeleteApiException() throws Exception {
+        exceptionRule.expect(RemoteApiException.class);
+        exceptionRule.expectMessage(exceptionMsg);
+        awsS3FilesystemService.deleteFile(exceptionThrowerUrl2, supportedProject);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testDeleteNotWritableException() throws Exception {
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage("Unable to write files to filesystem " + awsAltConfig.getFilesystemType() + " config " + awsAltConfig.getName());
+        awsS3FilesystemService.deleteFile(awsGoodUrl2, supportedProject);
+        Mockito.verify(mockAwsS3.mockS3client, Mockito.never()).deleteObject(anyString(), anyString());
+    }
+
+    @Test
+    @DirtiesContext
+    public void testMakeUriFromLocalInactive() throws Exception {
+        clearFileystemConfigs();
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage(awsS3FilesystemService.getClass().getName() +
+                " cannot archive files from project " + supportedProject);
+        awsS3FilesystemService.makeUriFromLocal(Paths.get(siteConfigPreferences.getArchivePath(), testFileName).toString(), supportedProject);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testMakeUriFromLocal() throws Exception {
+        assertThat(awsS3FilesystemService.makeUriFromLocal(Paths.get(siteConfigPreferences.getArchivePath(), testFileName).toString(), supportedProject),
+                is(awsTestFileUrl));
+        String uri = awsS3FilesystemService.makeUriFromLocal(Paths.get(siteConfigPreferences.getArchivePath(), awsGoodUrlFilePath).toString(), supportedProject);
+        assertThat(uri, is(awsGoodUrl));
+        // Previously, created unique URL if one already existed
+        //assertThat(uri, is(not(awsGoodUrl)));
+        //assertThat(uri, matchesPattern(awsGoodUrl.replaceAll("/[^/]*$", "/[0-9]*") +
+        //        "_" + awsGoodUrlFileName));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testMakeUriFromLocalSubdir() throws Exception {
+        AwsS3Config configWithS3 = awsS3ConfigEntityService.createOrUpdateFromPojo(awsSubdirConfig,
+                true, getAwsS3FilesystemService());
+        setProjectArchiver(supportedProject, configWithS3);
+        assertThat(awsS3FilesystemService.makeUriFromLocal(Paths.get(siteConfigPreferences.getArchivePath(),
+                testFileName).toString(), supportedProject), is(awsTestFileUrlSubdir));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetMetadataWhenInactive() throws Exception {
+        clearFileystemConfigs();
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage(awsS3FilesystemService.getClass().getName() +
+                " does not have an active config that can serve this request");
+        awsS3FilesystemService.getMetadata(awsGoodUrl, writableArchivePath, supportedProject);
+        Mockito.verify(mockAwsS3.mockS3client, Mockito.never()).getObjectMetadata(any(GetObjectMetadataRequest.class));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetMetadataValidUrl() throws Exception {
+        Date reqTime = new Date();
+        CatalogUtils.CatalogEntryAttributes attr = awsS3FilesystemService.getMetadata(awsGoodUrl, writableArchivePath, supportedProject);
+        assertNotNull(attr);
+        assertTrue("Last modified is not close enough to request time",
+                (attr.lastModified.getTime() - reqTime.getTime()) < 180000);
+        assertEquals(fakeBucketName + "/" + awsGoodUrlFilePath, attr.relativePath);
+        assertEquals(awsGoodUrlFileName, attr.name);
+        assertEquals(awsGoodUrlFileSize, attr.size);
+        assertEquals(awsGoodUrlFileMd5, attr.md5);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetMetadataValidUrlAlt() throws Exception {
+        Date reqTime = new Date();
+        CatalogUtils.CatalogEntryAttributes attr = awsS3FilesystemService.getMetadata(awsGoodUrl2, writableArchivePath, supportedProject);
+        assertNotNull(attr);
+        assertTrue("Last modified is not close enough to request time",
+                (attr.lastModified.getTime() - reqTime.getTime()) < 180000);
+        assertEquals(altBucketName + "/" + awsGoodUrlFilePath, attr.relativePath);
+        assertEquals(awsGoodUrlFileName, attr.name);
+        assertEquals(awsGoodUrlFileSize, attr.size);
+        assertEquals(awsGoodUrlFileMd5, attr.md5);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetMetadataBadOrMissingUrl() throws Exception {
+        for (String unsupportedUrl : Arrays.asList(badUrl, readonlyBucketUrl, nonUrl, awsMissingUrl)) {
+            try {
+                awsS3FilesystemService.getMetadata(unsupportedUrl, writableArchivePath + "/file.txt", supportedProject);
+            } catch (UnsupportedUrlException e) {
+                assertThat(e.getMessage(), is(awsS3FilesystemService.getClass().getName() +
+                        " does not support URL " + unsupportedUrl));
+            } catch (InactiveUnpermittedOrNotWritableFilesystemException e) {
+                assertThat(e.getMessage(), is(awsS3FilesystemService.getClass().getName() +
+                        " does not have an active config that can serve this request"));
+            }
+        }
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetMetadataApiException() throws Exception {
+        exceptionRule.expect(RemoteApiException.class);
+        exceptionRule.expectMessage(exceptionMsg);
+        awsS3FilesystemService.getMetadata(exceptionThrowerUrl, writableArchivePath, supportedProject);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPullFileWhenInactive() throws Exception {
+        clearFileystemConfigs();
+        String name = "testGetMetadataWhenInactive.txt";
+        String path = Paths.get(writableArchivePath, name).toString();
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage(awsS3FilesystemService.getClass().getName() +
+                " does not have an active config that can serve this request");
+        awsS3FilesystemService.pullFile(awsGoodUrl, path, supportedProject);
+        Mockito.verify(mockAwsS3.mockS3transfer, Mockito.never()).download(anyString(), anyString(), any(File.class));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPullValidUrl() throws Exception {
+        String name = "testPullValidUrl.txt";
+        String path = Paths.get(writableArchivePath, name).toString();
+        File file = awsS3FilesystemService.pullFile(awsGoodUrl, path, supportedProject);
+        assertNotNull(file);
+        assertThat(file, anExistingFile());
+        assertThat(file, aFileWithSize(awsGoodUrlFileSize));
+        assertThat(file, aFileWithAbsolutePath(equalTo(path)));
+        assertThat(file, aFileNamed(equalTo(name)));
+        assertTrue("File content doesn't match expected", FileUtils.contentEquals(file, awsGoodUrlFile));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPullBadOrMissingUrl() throws Exception {
+        for (String unsupportedUrl : Arrays.asList(badUrl, readonlyBucketUrl, nonUrl, awsMissingUrl)) {
+            try {
+                awsS3FilesystemService.pullFile(unsupportedUrl, writableArchivePath + "/file.txt", supportedProject);
+            } catch (UnsupportedUrlException e) {
+                assertThat(e.getMessage(), is(awsS3FilesystemService.getClass().getName() +
+                        " does not support URL " + unsupportedUrl));
+            } catch (InactiveUnpermittedOrNotWritableFilesystemException e) {
+                assertThat(e.getMessage(), is(awsS3FilesystemService.getClass().getName() +
+                        " does not have an active config that can serve this request"));
+            }
+        }
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPullFileExists() throws Exception {
+        File file = awsS3FilesystemService.pullFile(awsGoodUrl, awsGoodUrlFile.getAbsolutePath(), supportedProject);
+        assertEquals(file, awsGoodUrlFile);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPullApiException() throws Exception {
+        String name = "testPullApiException.txt";
+        String path = Paths.get(writableArchivePath, name).toString();
+        exceptionRule.expect(RemoteApiException.class);
+        exceptionRule.expectMessage(exceptionMsg);
+        awsS3FilesystemService.pullFile(exceptionThrowerUrl, path, supportedProject);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testPullFailure() throws Exception {
+        String name = "testPullFailure.txt";
+        String path = Paths.get(writableArchivePath, name).toString();
+        exceptionRule.expect(RemoteApiException.class);
+        exceptionRule.expectMessage("Supposedly-downloaded file doesn't exist");
+        awsS3FilesystemService.pullFile(awsGoodUrl2, path, supportedProject);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetInputStreamWhenInactive() throws Exception {
+        clearFileystemConfigs();
+        exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);
+        exceptionRule.expectMessage(awsS3FilesystemService.getClass().getName() +
+                " does not have an active config that can serve this request");
+        awsS3FilesystemService.getInputStream(awsGoodUrl, supportedProject);
+        Mockito.verify(mockAwsS3.mockS3client, Mockito.never()).getObject(any(GetObjectRequest.class));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetInputStream() throws Exception {
+        InputStream is = awsS3FilesystemService.getInputStream(awsGoodUrl, supportedProject);
+        File file = new File(writableArchivePath, "tmp.txt");
+        FileUtils.copyInputStreamToFile(is, file);
+        assertNotNull(file);
+        assertThat(file, anExistingFile());
+        assertThat(file, aFileWithSize(awsGoodUrlFileSize));
+        assertTrue(FileUtils.contentEquals(file, awsGoodUrlFile));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetInputStreamBadOrMissingUrl() throws Exception {
+        for (String unsupportedUrl : Arrays.asList(badUrl, readonlyBucketUrl, nonUrl, awsMissingUrl)) {
+            try {
+                awsS3FilesystemService.getInputStream(unsupportedUrl, supportedProject);
+                Mockito.verify(mockAwsS3.mockS3client, Mockito.never()).getObject(any(GetObjectRequest.class));
+            } catch (UnsupportedUrlException e) {
+                assertThat(e.getMessage(), is(awsS3FilesystemService.getClass().getName() +
+                        " does not support URL " + unsupportedUrl));
+            } catch (InactiveUnpermittedOrNotWritableFilesystemException e) {
+                assertThat(e.getMessage(), is(awsS3FilesystemService.getClass().getName() +
+                        " does not have an active config that can serve this request"));
+            }
+        }
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetInputStreamApiException() throws Exception {
+        exceptionRule.expect(RemoteApiException.class);
+        exceptionRule.expectMessage(exceptionMsg);
+        awsS3FilesystemService.getInputStream(exceptionThrowerUrl, supportedProject);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testInitiatePullResourceFilesAndPollPullResource() throws Exception {
+        File catalogFile = new File(siteConfigPreferences.getArchivePath(), "AWS_catalog.xml");
+        CatalogUtils.CatalogData catalogData = new CatalogUtils.CatalogData(catalogFile, supportedProject);
+        Object obj = awsS3FilesystemService.initiatePullResourceFiles(catalogData.catPath, writableArchivePath, supportedProject,
+                new ArrayList<>(catalogData.catBean.getEntries_entry()));
+        assertNotNull(obj);
+        assertTrue(obj instanceof AbstractFilesystemService.DownloadTracker);
+        final AbstractFilesystemService.DownloadTracker tracker = (AbstractFilesystemService.DownloadTracker) obj;
+        await().until(() -> awsS3FilesystemService.pollPullResource(tracker) == 100.0);
+        for (CatEntryI entry : catalogData.catBean.getEntries_entry()) {
+            File file = Paths.get(writableArchivePath, entry.getCachepath()).toFile();
+            assertThat(file, anExistingFile());
+            assertThat(file, aFileWithSize(awsGoodUrlFileSize));
+            assertTrue("File content doesn't match expected",
+                    FileUtils.contentEquals(file, awsGoodUrlFile));
+        }
+    }
+
+    @Test
+    @DirtiesContext
+    public void testInitiatePullResourceFilesAndPollPullResourceUnsupported() throws Exception {
+        File catalogFile = new File(siteConfigPreferences.getArchivePath(), "AWS_unsupported_catalog.xml");
+        CatalogUtils.CatalogData catalogData = new CatalogUtils.CatalogData(catalogFile, supportedProject);
+        Object obj = awsS3FilesystemService.initiatePullResourceFiles(catalogData.catPath, writableArchivePath, supportedProject,
+                new ArrayList<>(catalogData.catBean.getEntries_entry()));
+        assertNull(obj);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testInitiatePullResourceFilesAndPollPullResourceWithFailure() throws Exception {
+        File catalogFile = new File(siteConfigPreferences.getArchivePath(), "AWS_bad_catalog.xml");
+        CatalogUtils.CatalogData catalogData = new CatalogUtils.CatalogData(catalogFile, supportedProject);
+        Object obj = awsS3FilesystemService.initiatePullResourceFiles(catalogData.catPath, writableArchivePath, supportedProject,
+                new ArrayList<>(catalogData.catBean.getEntries_entry()));
+        assertNotNull(obj);
+        assertTrue(obj instanceof AbstractFilesystemService.DownloadTracker);
+        final AbstractFilesystemService.DownloadTracker tracker = (AbstractFilesystemService.DownloadTracker) obj;
+        try {
+            awsS3FilesystemService.pollPullResource(tracker);
+        } catch (RemoteFilesOperationException e) {
+            assertThat(e.getMessage(), containsString("Downloads failed: "));
+        }
+        for (CatEntryI entry : catalogData.catBean.getEntries_entry()) {
+            File file = Paths.get(writableArchivePath, entry.getCachepath()).toFile();
+            assertThat(file, not(anExistingFile()));
+        }
+    }
+
+    @Test
+    @DirtiesContext
+    public void testListAllFiles() throws Exception {
+        List<String> files = awsS3FilesystemService.listAllFiles(null, supportedProject);
+        log.error("files {}", files);
+        assertThat(files, hasSize(6));
+        assertThat(files, containsInAnyOrder(awsGoodUrlFilePath, etagNull, testFileName, "subdir/",
+                "subdir/deeper/file.txt", "subdir/deeper/"));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testUpdateProjectsForConfig() throws Exception {
+        String p1 = "p1";
+        long id = idsToRemove.get(0);
+        assertThat(awsS3FilesystemService.supportsUrl(awsGoodUrl, p1, true), is(false));
+        awsS3ConfigEntityService.updatePermittedProjects(id, true,
+                Collections.singletonList(p1), awsS3FilesystemService);
+        assertThat(awsS3FilesystemService.supportsUrl(awsGoodUrl, p1, true), is(true));
+    }
+}

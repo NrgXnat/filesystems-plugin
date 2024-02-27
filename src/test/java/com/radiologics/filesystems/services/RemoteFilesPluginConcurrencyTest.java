@@ -1,0 +1,241 @@
+// Copyright 2019 Radiologics, Inc
+// Developer: Kate Alpert <kate@radiologics.com>
+
+package com.radiologics.filesystems.services;
+
+import com.radiologics.filesystems.config.TestConfig;
+import com.radiologics.filesystems.model.entity.RemoteFilesResourceStatus;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.mutable.MutableBoolean;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.nrg.framework.node.XnatNode;
+import org.nrg.xdat.om.XnatMrsessiondata;
+import org.nrg.xdat.om.XnatResourcecatalog;
+import org.nrg.xdat.om.base.auto.AutoXnatAbstractresource;
+import org.nrg.xdat.preferences.SiteConfigPreferences;
+import org.nrg.xft.XFTItem;
+import org.nrg.xft.event.EventDetails;
+import org.nrg.xft.event.EventMetaI;
+import org.nrg.xft.event.EventUtils;
+import org.nrg.xft.event.persist.PersistentWorkflowI;
+import org.nrg.xft.event.persist.PersistentWorkflowUtils;
+import org.nrg.xft.security.UserI;
+import org.nrg.xnat.helpers.uri.UriParserUtils;
+import org.nrg.xnat.node.entities.XnatNodeInfo;
+import org.nrg.xnat.node.services.XnatNodeInfoService;
+import org.nrg.xnat.node.services.impl.HibernateXnatNodeInfoService;
+import org.nrg.xnat.utils.CatalogUtils;
+import org.powermock.api.mockito.PowerMockito;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
+import org.powermock.modules.junit4.PowerMockRunnerDelegate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.concurrent.ThreadPoolExecutorFactoryBean;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
+import static com.radiologics.filesystems.config.SharedStrings.*;
+import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+import static org.mockito.Matchers.*;
+import static org.mockito.Matchers.eq;
+
+
+@RunWith(PowerMockRunner.class)
+@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
+@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
+@PrepareForTest({PersistentWorkflowUtils.class, UriParserUtils.class, AutoXnatAbstractresource.class,
+        RemoteFilesTrackerEntityServiceImpl.class, CatalogUtils.class, EventUtils.class})
+@Slf4j
+@ContextConfiguration(classes = {TestConfig.class})
+public class RemoteFilesPluginConcurrencyTest {
+    @Autowired private HibernateXnatNodeInfoService xnatNodeInfoService;
+    @Autowired private SiteConfigPreferences siteConfigPreferences;
+    @Autowired private RemoteFilesTrackerEntityService remoteFilesTrackerEntityService;
+
+    @Mock ThreadPoolExecutorFactoryBean threadPoolExecutorFactoryBean;
+    @Mock XnatNodeInfoService nodeInfoService;
+    @Mock private ProjectFilesystemSettingsService projectFilesystemSettingsService;
+
+    private List<FilesystemService> filesystemServices = new ArrayList<>();
+    private UserI mockUser;
+    private XnatMrsessiondata session;
+    private XnatResourcecatalog catRes;
+
+    private int threads = 10;
+    private List<XnatNode> nodes = new ArrayList<>();
+
+    @Before
+    public void setup() throws Exception {
+        Files.createDirectories(Paths.get(writableArchivePath));
+
+        mockUser = Mockito.mock(UserI.class);
+        Mockito.when(mockUser.getLogin()).thenReturn("mockUser");
+
+        // No workflows
+        PowerMockito.mockStatic(EventUtils.class);
+        PowerMockito.doReturn("").when(EventUtils.class, "getAddModifyAction",
+                anyString(), anyBoolean());
+        PowerMockito.doReturn(Mockito.mock(EventDetails.class)).when(EventUtils.class, "newEventInstance",
+                any(EventUtils.CATEGORY.class), any(EventUtils.TYPE.class), anyString(), anyString(), anyString());
+
+        PersistentWorkflowI mockWrk = Mockito.mock(PersistentWorkflowI.class);
+        EventMetaI mockEventMeta = Mockito.mock(EventMetaI.class);
+        Mockito.when(mockWrk.buildEvent()).thenReturn(mockEventMeta);
+        Mockito.when(mockEventMeta.getEventId()).thenReturn(1);
+        PowerMockito.mockStatic(PersistentWorkflowUtils.class);
+        PowerMockito.doReturn(Collections.emptyList()).when(PersistentWorkflowUtils.class, "getOpenWorkflows",
+                eq(mockUser), anyString());
+        PowerMockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "getOrCreateWorkflowData",
+                anyInt(), eq(mockUser), any(XFTItem.class), any(EventDetails.class));
+        PowerMockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "buildOpenWorkflow",
+                eq(mockUser), any(XFTItem.class), any(EventDetails.class));
+
+        // URI parsing
+        PowerMockito.mockStatic(UriParserUtils.class);
+
+        //Mock objects
+        session = Mockito.mock(XnatMrsessiondata.class);
+        Mockito.when(session.getId()).thenReturn("LOCAL_E00001");
+        Mockito.when(session.getXSIType()).thenReturn(XnatMrsessiondata.SCHEMA_ELEMENT_NAME);
+        String mockSesArchivePath = Paths.get(siteConfigPreferences.getArchivePath(),
+                supportedProject, "arc001", "ses1").toString();
+        Mockito.when(session.getExpectedCurrentDirectory()).thenReturn(new File(mockSesArchivePath));
+        Mockito.when(session.getArchiveRootPath()).thenReturn(testArchiveDir);
+        //Mockito.when(session.getScans_scan()).thenReturn(Collections.singletonList(scan));
+
+        catRes = Mockito.mock(XnatResourcecatalog.class);
+        int catResId = 1;
+        Mockito.when(catRes.getXnatAbstractresourceId()).thenReturn(catResId);
+        Mockito.when(catRes.getLabel()).thenReturn("DEBUG_OUTPUT");
+        String catResUri = Paths.get(mockSesArchivePath, "RESOURCES",
+                catRes.getLabel(), catRes.getLabel() + "_catalog.xml").toString();
+        Mockito.when(catRes.getUri()).thenReturn(catResUri);
+
+        // create nodes
+        Calendar c = Calendar.getInstance();
+        c.add(Calendar.MINUTE, -90);
+        Date init = c.getTime();
+        for (int t = 0; t < threads; ++t) {
+            final String threadNum = String.valueOf(t + 100);
+            XnatNode xnatNode = Mockito.mock(XnatNode.class);
+            Mockito.when(xnatNode.getNodeId()).thenReturn(threadNum);
+            XnatNodeInfo xnatNodeInfo = new XnatNodeInfo(threadNum, "test", "ip", new Date());
+            xnatNodeInfo.setIsActive(true);
+            xnatNodeInfo.setLastCheckIn(new Date());
+            xnatNodeInfo.setLastInitialized(init);
+            xnatNodeInfoService.create(xnatNodeInfo);
+            Mockito.when(nodeInfoService.getXnatNodeInfoByNodeIdAndHostname(eq(threadNum),
+                    anyString())).thenReturn(xnatNodeInfo);
+            nodes.add(t, xnatNode);
+        }
+    }
+
+    @After
+    public void cleanup() throws IOException {
+        FileUtils.deleteDirectory(new File(writableArchivePath));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testConcurrentWithExisting() throws Exception {
+        //fake archive to create an entity (bug doesn't occur without it bc hibernate chokes on the dupe foreign key)
+        final RemoteFilesPluginServiceImpl remoteFilesServiceParent = new RemoteFilesPluginServiceImpl(
+                remoteFilesTrackerEntityService, projectFilesystemSettingsService, filesystemServices,
+                siteConfigPreferences, threadPoolExecutorFactoryBean, nodeInfoService, nodes.get(0));
+        MutableBoolean firstPush = new MutableBoolean(false);
+        Assert.assertThat(remoteFilesServiceParent.startPush(session, catRes, mockUser, 1, firstPush),
+                is(true));
+        Assert.assertTrue("First push should be true", firstPush.booleanValue());
+        remoteFilesServiceParent.completePush(session, catRes, true);
+        Assert.assertThat(remoteFilesTrackerEntityService.findByResource(catRes).getStatus(),
+                is(RemoteFilesResourceStatus.Archived));
+        runConcurrently();
+    }
+
+    @Test
+    @DirtiesContext
+    public void testInSeriesWithExisting() {
+        //fake archive to create an entity (bug doesn't occur without it bc hibernate chokes on the dupe foreign key)
+        final RemoteFilesPluginServiceImpl remoteFilesServiceParent = new RemoteFilesPluginServiceImpl(
+                remoteFilesTrackerEntityService, projectFilesystemSettingsService, filesystemServices,
+                siteConfigPreferences, threadPoolExecutorFactoryBean, nodeInfoService, nodes.get(0));
+        MutableBoolean firstPush = new MutableBoolean(false);
+        Assert.assertThat(remoteFilesServiceParent.startPush(session, catRes, mockUser, 1, firstPush),
+                is(true));
+        Assert.assertTrue("First push should be true", firstPush.booleanValue());
+        remoteFilesServiceParent.completePush(session, catRes, true);
+        Assert.assertThat(remoteFilesTrackerEntityService.findByResource(catRes).getStatus(),
+                is(RemoteFilesResourceStatus.Archived));
+        runInSeries();
+    }
+
+    @Test
+    @DirtiesContext
+    public void testConcurrentWithNew() throws Exception {
+        runConcurrently();
+    }
+
+    @Test
+    @DirtiesContext
+    public void testInSeriesWithNew() {
+        runInSeries();
+    }
+
+    private void runConcurrently() throws Exception {
+        ExecutorService service = Executors.newFixedThreadPool(threads);
+        Collection<Callable<Boolean>> tasks = new ArrayList<>(threads);
+        for (int t = 0; t < threads; ++t) {
+            final XnatNode xnatNode = nodes.get(t);
+            tasks.add(() -> startPush(xnatNode));
+        }
+
+        List<Future<Boolean>> futures = service.invokeAll(tasks);
+        int startedTask = 0;
+        for (Future<Boolean> f : futures) {
+            if (f.get()) {
+                startedTask++;
+            }
+        }
+        service.shutdown();
+        assertThat(startedTask, equalTo(1));
+    }
+
+    private void runInSeries() {
+        int startedTask = 0;
+        for (int t = 0; t < threads; ++t) {
+            final XnatNode xnatNode = nodes.get(t);
+            if (startPush(xnatNode)) {
+                startedTask++;
+            }
+        }
+        assertThat(startedTask, equalTo(1));
+    }
+
+    boolean startPush(XnatNode xnatNode) {
+        final RemoteFilesPluginServiceImpl remoteFilesService = new RemoteFilesPluginServiceImpl(
+                remoteFilesTrackerEntityService, projectFilesystemSettingsService, filesystemServices,
+                siteConfigPreferences, threadPoolExecutorFactoryBean, nodeInfoService, xnatNode);
+        return remoteFilesService.startPush(session, catRes, mockUser, 1, new MutableBoolean(false));
+    }
+}

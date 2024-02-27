@@ -1,0 +1,242 @@
+def groupName = 'com.radiologics'
+def pluginVersion = '3.2.0'
+
+group groupName
+version pluginVersion
+
+buildscript {
+    ext {
+        vXnat = '1.8.6'
+    }
+    repositories {
+        maven { url "https://plugins.gradle.org/m2/" }
+        mavenLocal()
+        maven { url "https://nrgxnat.jfrog.io/nrgxnat/libs-release" }
+        maven { url "https://nrgxnat.jfrog.io/nrgxnat/libs-snapshot" }
+        mavenCentral()
+    }
+    dependencies {
+        gradleApi()
+        classpath "io.spring.gradle:dependency-management-plugin:1.0.3.RELEASE"
+        classpath "io.franzbecker:gradle-lombok:1.14"
+        classpath "net.linguica.gradle:maven-settings-plugin:0.5"          
+    }
+}
+
+apply plugin: 'io.spring.dependency-management'
+apply plugin: "io.franzbecker.gradle-lombok"
+apply plugin: 'groovy'
+apply plugin: 'java'
+apply plugin: 'jacoco'
+apply plugin: 'maven'
+apply plugin: 'idea'
+apply plugin: 'eclipse'
+apply plugin: 'maven-publish'
+apply plugin: 'net.linguica.maven-settings'
+
+repositories {
+    mavenLocal()
+    maven { url "https://nrgxnat.jfrog.io/nrgxnat/libs-release" }
+    maven { url "https://nrgxnat.jfrog.io/nrgxnat/libs-snapshot" }
+    mavenCentral()
+}
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+compileJava {
+    options.fork = false
+}
+
+jacoco {
+    toolVersion = "0.7.9"
+}
+
+jacocoTestReport {
+    reports {
+        xml.enabled false
+        csv.enabled false
+        html.destination file("${buildDir}/jacocoHtml")
+    }
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir 'src/main/java'
+            srcDir 'build/xnat-generated/src/main/java'
+        }
+        resources {
+            srcDir 'src/main/resources'
+            srcDir 'build/xnat-generated/src/main/resources'
+        }
+    }
+}
+
+configurations {
+    all*.exclude group: 'jamon'
+}
+
+dependencyManagement.imports {
+    mavenBom "org.nrg:parent:${vXnat}"
+}
+
+// Use this configuration to put dependencies into the fat jar
+configurations {
+    compile.extendsFrom(compileAndInclude)
+}
+
+def vSpringSecurity = dependencyManagement.importedProperties['spring-security.version']
+def vH2 = "1.4.197"
+
+dependencies {
+    compile("org.nrg.xnat:web") {
+        exclude group: '*'
+    }
+    compile("org.nrg.xnat:xnat-data-models") {
+        exclude group: '*'
+    }
+    compile("org.nrg.xdat:core") {
+        exclude group: '*'
+    }
+    compile "org.nrg:prefs"
+    compile "org.nrg:framework"
+    annotationProcessor "org.nrg:framework"
+
+    compile "org.reflections:reflections"
+    compile "javax.servlet:javax.servlet-api"
+
+    compile("turbine:turbine") {
+        exclude group: '*'
+    }
+    compile("org.apache.velocity:velocity") {
+        exclude group: '*'
+    }
+
+    compile "org.slf4j:slf4j-api"
+    compile "org.slf4j:slf4j-log4j12"
+    compile "org.slf4j:jul-to-slf4j"
+    compile "log4j:log4j"
+    compile group: 'org.restlet.jee', name: 'org.restlet', version: '2.1.1'
+
+    compile "org.springframework:spring-aop"
+    compile "org.springframework:spring-beans"
+    compile "org.springframework:spring-context-support"
+    compile "org.springframework:spring-context"
+    compile "org.springframework:spring-core"
+    compile "org.springframework:spring-jdbc"
+    compile "org.springframework:spring-jms"
+    compile "org.springframework:spring-messaging"
+    compile "org.springframework:spring-orm"
+    compile "org.springframework:spring-oxm"
+    compile "org.springframework:spring-tx"
+    compile "org.springframework:spring-web"
+    compile "org.springframework:spring-webmvc"
+
+    compile "io.springfox:springfox-swagger2"
+    compile "io.springfox:springfox-swagger-ui"
+
+    compile "org.springframework.security:spring-security-acl"
+    compile "org.springframework.security:spring-security-aspects"
+    compile "org.springframework.security:spring-security-config"
+    compile "org.springframework.security:spring-security-ldap"
+    compile "org.springframework.security:spring-security-taglibs"
+    compile "org.springframework.ldap:spring-ldap-core"
+
+    compile "ecs:ecs"
+
+    compile group: 'com.google.code.findbugs', name: 'jsr305', version: '3.0.2'
+
+    compileAndInclude(group: 'com.amazonaws', name: 'aws-java-sdk-s3', version: '1.12.336') {
+        exclude group: 'com.fasterxml.jackson.core', module: 'jackson-databind' // included in xnat-web
+        exclude group: 'com.fasterxml.jackson.core', module: 'jackson-core'     // included in xnat-web
+    }
+    compileAndInclude(group: 'org.magicwerk', name: 'brownies-collections', version: '0.9.13')
+
+    testCompile group: 'junit', name: 'junit'
+    testCompile group: 'org.hamcrest', name: 'hamcrest', version: '2.1'
+    testCompile "org.nrg:config" 
+    testCompile "org.nrg:notify"
+    testCompile "org.nrg:transaction"
+    testCompile "org.nrg.xnat:xnatsrb"
+    testCompile "org.springframework:spring-test"
+    testCompile "org.springframework.security:spring-security-test:${vSpringSecurity}"
+    testCompile "org.springframework.security:spring-security-config"
+    testCompile "javax.servlet:javax.servlet-api"
+    testCompile "com.h2database:h2:${vH2}"
+    testCompile "org.springframework:spring-jdbc"
+    testCompile "org.springframework:spring-orm"
+    testCompile "org.json:json"
+    testCompile "org.apache.commons:commons-dbcp2"
+    testCompile group: 'commons-configuration', name: 'commons-configuration', version: '1.7'
+    testCompile group: 'org.javassist', name: 'javassist', version: '3.25.0-GA'
+    testCompile "org.mockito:mockito-all:1.10.19"
+    testCompile "org.powermock:powermock-module-junit4:1.7.0"
+    testCompile "org.powermock:powermock-api-mockito:1.7.0"
+    testCompile "org.awaitility:awaitility:3.1.6"
+    testCompile group: 'org.apache.axis', name: 'axis', version: '1.4'
+    testCompile "com.fasterxml.jackson.datatype:jackson-datatype-guava"
+    testCompile "xalan:xalan"
+}
+
+lombok {
+    version = dependencyManagement.importedProperties["lombok.version"] as String
+    sha256 = dependencyManagement.importedProperties["lombok.checksum"] as String
+}
+
+task fatJar(type: Jar) {
+    zip64 true
+    classifier = "fat"
+    from {
+        configurations.compileAndInclude.collect { it.isDirectory() ? it : zipTree(it) }
+    } {
+        exclude "META-INF/*.SF"
+        exclude "META-INF/*.DSA"
+        exclude "META-INF/*.RSA"
+    }
+    with jar
+}
+
+
+task sourceJar(type: Jar, dependsOn: classes) {
+    from sourceSets.main.allSource
+}
+
+task javadocJar(type: Jar, dependsOn: javadoc) {
+    from javadoc.destinationDir
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            artifact sourceJar {
+                classifier "sources"
+            }
+
+            artifact javadocJar {
+                classifier "javadoc"
+            }
+
+            artifact fatJar
+        }
+    }
+}
+
+publishing.repositories {
+    maven {
+        name "Radiologics"
+        def releasesRepoUrl =  "https://maven.dev.radiologics.com/repository/internal/"
+        def snapshotsRepoUrl = "https://maven.dev.radiologics.com/repository/snapshots/"
+        url = version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl            
+    }
+}
+
+def propertyWithDefault(String name, Object value) {
+    hasProperty(name) ? property(name) : value
+}
+
+//test.doFirst {
+//    jvmArgs '-Xdebug', '-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=5009'
+//}

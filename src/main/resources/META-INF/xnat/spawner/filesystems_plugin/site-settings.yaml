@@ -1,0 +1,47 @@
+# the 'root' element is the main entry point for the element tree
+siteSettings:
+    # the root 'kind' property must be 'tabs' to inject into settings UIs
+    kind: tabs
+    groups:
+        # create a custom tab group for your plugin
+        filesystemTabs: External Filesystems
+    contents:
+        ${awss3Tab}
+
+awss3Tab:
+    kind: tab
+    # add your tab to the group defined above - REQUIRED for rendering
+    group: filesystemTabs
+    label: AWS S3 Filesystem Settings
+    contents:
+        ${awss3Config}
+        ${projectSettings}
+
+awss3Config:
+    kind: panel
+    name: awss3Config
+    label: "AWS S3 Bucket Configuration"
+    contents:
+        #siteAdminScripts just needs to be included on the page once, add it to one of the panel.forms
+        siteAdminScripts:
+            tag: script|src="~/scripts/xnat/plugin/filesystems_plugin/filesystems_plugin-siteAdmin.js"
+        siteAdminCss:
+            tag: link|rel="stylesheet"|type="text/css"|href="~/style/xnat/plugin/filesystems_plugin/filesystems_plugin.css"
+        tableCss:
+            tag: link|rel="stylesheet"|type="text/css"|href="/scripts/xnat/app/scanTable/scanTable.css"
+        config:
+            tag: div#aws-s3-config-manager #dont change, see filesystems_plugin-siteAdmin.js
+
+# Ultimately, each filesystem (s3, dropbox, etc) would have its own tab, and projectSettings would be a separate tab
+projectSettings:
+    kind: panel
+    name: projectSettings
+    label: "Project Access and Local-Archive-Cleanup Preferences"
+    contents:
+        info:
+            tag: p
+            element:
+                style: "margin: 15px 0 30px"
+            contents: Use the table below to configure project access to each filesystem configuration. Click on the archiver button next to the project id to configure local archive cleanup (i.e., automatic archival to remote filesystem after a period of inactivity) and optional automatic upload of processing outputs to remote filesystem. Use the checkboxes to configure read access. Red buttons need attention as the previously selected archiver filesystem is no longer active and/or marked as an archiver.<br/><br/>Be sure to configure the XNAT Task Service for proper filesystem cleanup. See the <a href="https://wiki.xnat.org/documentation/xnat-administration/multiple-web-front-ends-to-a-single-xnat-database-or-archive-multi-node-xnat">documentation</a>.
+        config:
+            tag: div#filesystems-project-config.data-table-container #dont change, see filesystems_plugin-siteAdmin.js

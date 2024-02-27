@@ -1,0 +1,10 @@
+*.iml
+*.log
+/target
+/build
+/out
+.gradle*
+/.idea
+src/beans
+src/generated
+/coverage_reports

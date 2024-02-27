@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cat:Catalog ID="DEBUG_OUTPUT" xmlns:arc="http://nrg.wustl.edu/arc" xmlns:cat="http://nrg.wustl.edu/catalog" xmlns:icr="http://icr.ac.uk/icr" xmlns:pipe="http://nrg.wustl.edu/pipe" xmlns:prov="http://www.nbirn.net/prov" xmlns:scr="http://nrg.wustl.edu/scr" xmlns:val="http://nrg.wustl.edu/val" xmlns:wrk="http://nrg.wustl.edu/workflow" xmlns:xdat="http://nrg.wustl.edu/security" xmlns:xnat="http://nrg.wustl.edu/xnat" xmlns:xnat_a="http://nrg.wustl.edu/xnat_assessments" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<cat:metaFields>
+	<cat:metaField name="PROJECT">project</cat:metaField>
+	<cat:metaField name="AUDIT">9159:Wed Jun 12 22:54:13 GMT 2019=Modified:1|9203:Mon Jun 17 00:59:50 GMT 2019=Added:2|9156:Wed Jun 12 16:17:35 GMT 2019=Added:1|9204:Mon Jun 17 01:01:54 GMT 2019=Removed:2</cat:metaField>
+</cat:metaFields>
+<cat:entries>
+	<cat:entry ID="out.txt" URI="s3://testbucket/project/arc001/ses1/RESOURCES/DEBUG_OUTPUT/out.txt" cachePath="out.txt" createdBy="admin" createdEventId="9156" createdTime="2019-06-12T16:17:35.927" digest="6f5902ac237024bdd0c176cb93063dc4" name="out.txt">
+		<cat:metaFields>
+			<cat:metaField name="SIZE">12</cat:metaField>
+		</cat:metaFields>
+	</cat:entry>
+</cat:entries>
+</cat:Catalog>

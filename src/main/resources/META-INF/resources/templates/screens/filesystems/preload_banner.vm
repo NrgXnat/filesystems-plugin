@@ -1,0 +1,23 @@
+## Copyright 2019 Radiologics, Inc
+## Developer: Kate Alpert <kate@radiologics.com>
+
+<script type="text/javascript" src="$!content.getURI("scripts/xnat/plugin/filesystems_plugin/preload.js")"></script>
+<link rel="stylesheet" type="text/css" href="$!content.getURI("style/xnat/plugin/filesystems_plugin/filesystems_plugin.css")"/>
+
+<div class="clearfix">
+    <div id="preload-container" class='info'>
+        <span class="close"><i class="fa fa-close"></i></span>
+        <strong>Externally archived item: </strong>
+        <span class="loading">please wait... loading status.</span>
+        <span id="no-pull" class="messages">all resources cached locally.</span>
+        <span id="archived" class="messages">some resources are not local.
+            <a class="locked-or-archived-details">View details</a> to preload some or all remote resources so as to
+            speed up operations like viewing scans, inspecting resource reports, etc.
+        </span>
+        <span id="locked" class="messages"><a class="locked-or-archived-details">some resources</a> are currently being
+            pushed to or pulled from an external filesystem. Please wait to perform operations such as viewing scans,
+            inspecting resource reports, etc. on those resources. <a class="refresh-status">Refresh status</a>.
+        </span>
+        <span id="error-pull" class="messages">Error:<span id="error-pull-msg"></span>.</span>
+    </div>
+</div>

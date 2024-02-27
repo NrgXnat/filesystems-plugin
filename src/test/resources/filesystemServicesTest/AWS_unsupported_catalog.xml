@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cat:Catalog ID="AWS" xmlns:arc="http://nrg.wustl.edu/arc" xmlns:cat="http://nrg.wustl.edu/catalog" xmlns:pipe="http://nrg.wustl.edu/pipe" xmlns:prov="http://www.nbirn.net/prov" xmlns:scr="http://nrg.wustl.edu/scr" xmlns:val="http://nrg.wustl.edu/val" xmlns:wrk="http://nrg.wustl.edu/workflow" xmlns:xdat="http://nrg.wustl.edu/security" xmlns:xnat="http://nrg.wustl.edu/xnat" xmlns:xnat_a="http://nrg.wustl.edu/xnat_assessments" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<cat:metaFields>
+    <cat:metaField name="PROJECT">project</cat:metaField>
+	<cat:metaField name="AUDIT">8902:Wed Jun 05 22:16:04 GMT 2019=Added:2</cat:metaField>
+</cat:metaFields>
+<cat:entries>
+	<cat:entry ID="badbucket/subdir/goodUrlFile.txt" URI="s3://badbucket/subdir/goodUrlFile.txt" cachePath="badbucket/subdir/goodUrlFile.txt" createdBy="admin" createdEventId="8902" createdTime="2019-06-05T22:16:04.252" digest="b1946ac92492d2347c6235b4d2611184" name="goodUrlFile.txt">
+		<cat:metaFields>
+			<cat:metaField name="SIZE">6</cat:metaField>
+		</cat:metaFields>
+	</cat:entry>
+    <cat:entry ID="missing.txt" URI="s3://bucket/missing.txt" cachePath="missing.txt" createdBy="admin" createdEventId="8902" createdTime="2019-06-05T22:16:04.252" digest="b1946ac92492d2347c6235b4d2611184" name="missing.txt">
+        <cat:metaFields>
+            <cat:metaField name="SIZE">6</cat:metaField>
+        </cat:metaFields>
+    </cat:entry>
+    <cat:entry ID="local.txt" URI="local.txt" cachePath="local.txt" createdBy="admin" createdEventId="8902" createdTime="2019-06-05T22:16:04.252" digest="b1946ac92492d2347c6235b4d2611184" name="local.txt">
+        <cat:metaFields>
+            <cat:metaField name="SIZE">6</cat:metaField>
+        </cat:metaFields>
+    </cat:entry>
+</cat:entries>
+</cat:Catalog>

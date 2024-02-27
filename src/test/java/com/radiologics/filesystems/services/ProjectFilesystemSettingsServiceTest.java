@@ -1,0 +1,395 @@
+// Copyright 2019 Radiologics, Inc
+// Developer: Kate Alpert <kate@radiologics.com>
+
+package com.radiologics.filesystems.services;
+
+
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.transfer.TransferManagerBuilder;
+import com.amazonaws.services.s3.transfer.TransferProgress;
+import com.radiologics.filesystems.aws.s3.model.auto.AwsS3Config;
+import com.radiologics.filesystems.aws.s3.model.entity.AwsS3ConfigEntity;
+import com.radiologics.filesystems.aws.s3.services.AwsS3ConfigEntityService;
+import com.radiologics.filesystems.aws.s3.services.AwsS3FilesystemService;
+import com.radiologics.filesystems.config.AwsS3MockTestConfig;
+import com.radiologics.filesystems.config.MockAwsS3;
+import com.radiologics.filesystems.config.TestConfig;
+import com.radiologics.filesystems.exceptions.InvalidEntityException;
+import com.radiologics.filesystems.exceptions.NoSuchFilesystemException;
+import com.radiologics.filesystems.model.auto.FilesystemConfig;
+import com.radiologics.filesystems.model.auto.ProjectFilesystemSettings;
+import com.radiologics.filesystems.utils.TestingUtils;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FileUtils;
+import org.hamcrest.CustomTypeSafeMatcher;
+import org.hamcrest.Matcher;
+import org.hamcrest.core.IsIterableContaining;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.ExpectedException;
+import org.junit.runner.RunWith;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.nrg.framework.exceptions.NotFoundException;
+import org.nrg.xdat.om.XnatProjectdata;
+import org.nrg.xdat.om.base.auto.AutoXnatProjectdata;
+import org.nrg.xdat.security.services.PermissionsServiceI;
+import org.nrg.xft.ItemI;
+import org.nrg.xft.security.UserI;
+import org.nrg.xnat.exceptions.UnsupportedRemoteFilesOperationException;
+import org.powermock.api.mockito.PowerMockito;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
+import org.powermock.modules.junit4.PowerMockRunnerDelegate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.*;
+import java.util.*;
+
+import static com.radiologics.filesystems.config.SharedStrings.*;
+import static org.hamcrest.CoreMatchers.hasItem;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.hasSize;
+import static org.junit.Assert.assertThat;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.*;
+
+@Slf4j
+@RunWith(PowerMockRunner.class)
+@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
+@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
+@PrepareForTest({AutoXnatProjectdata.class, AmazonS3ClientBuilder.class, TransferManagerBuilder.class,
+        BasicAWSCredentials.class, AWSStaticCredentialsProvider.class, AwsS3FilesystemService.class,
+        TransferProgress.class, MockAwsS3.class, AwsS3Config.class
+})
+@ContextConfiguration(classes = {TestConfig.class, AwsS3MockTestConfig.class})
+public class ProjectFilesystemSettingsServiceTest {
+    @Autowired private PermissionsServiceI mockPermissionsService;
+    @Autowired private AwsS3ConfigEntityService awsS3ConfigEntityService;
+    @Autowired private ProjectFilesystemSettingsEntityService projectFilesystemSettingsEntityService;
+    @Autowired private AwsS3Config awsArchiverConfig;
+    @Autowired private AwsS3Config awsReadonlyConfig;
+    @Autowired private AwsS3Config awsSubdirConfig;
+    @Autowired private AwsS3Config awsAltArchiverConfig;
+
+    @Mock private AwsS3FilesystemService awsS3FilesystemService;
+    @Mock private DefaultFilesystemService defaultFilesystemService;
+
+    private ProjectFilesystemSettingsService projectFilesystemSettingsService;
+    private AwsS3Config archiverConfig;
+    private AwsS3Config archiverAltConfig;
+    private AwsS3Config nonArchiverConfig;
+    private AwsS3Config invalidArchiverConfig;
+
+
+    private UserI mockUser;
+
+    @Rule
+    public ExpectedException exceptionRule = ExpectedException.none();
+
+    @Before
+    public void setup() throws Exception {
+        Files.createDirectories(Paths.get(writableArchivePath));
+
+        mockUser = Mockito.mock(UserI.class);
+        Mockito.when(mockUser.getLogin()).thenReturn("mockUser");
+
+        // Permissions
+        Mockito.when(mockPermissionsService.can(any(UserI.class), any(ItemI.class), anyString()))
+                .thenReturn(Boolean.TRUE);
+
+        // Project settings (need the POJO with id set)
+        new MockAwsS3();
+        archiverConfig = awsS3ConfigEntityService.createOrUpdateFromPojo(awsArchiverConfig,
+                true, awsS3FilesystemService);
+        nonArchiverConfig = awsS3ConfigEntityService.createOrUpdateFromPojo(awsReadonlyConfig,
+                true, awsS3FilesystemService);
+        archiverAltConfig = awsS3ConfigEntityService.createOrUpdateFromPojo(awsSubdirConfig,
+                true, awsS3FilesystemService);
+
+        for (AwsS3ConfigEntity entity : awsS3ConfigEntityService.getAll()) {
+            Mockito.when(awsS3FilesystemService.servesConfig(entity.toPojo())).thenReturn(true);
+        }
+
+        invalidArchiverConfig = awsS3ConfigEntityService.createOrUpdateFromPojo(awsAltArchiverConfig,
+                true, awsS3FilesystemService);
+
+        PowerMockito.mockStatic(AutoXnatProjectdata.class);
+        ArrayList<XnatProjectdata> projectList = new ArrayList<>();
+        for (String project : allProjectArrayList) {
+            XnatProjectdata xnatProjectdata = Mockito.mock(XnatProjectdata.class);
+            Mockito.when(xnatProjectdata.getId()).thenReturn(project);
+            projectList.add(xnatProjectdata);
+        }
+        PowerMockito.doReturn(projectList).when(AutoXnatProjectdata.class,
+                "getAllXnatProjectdatas", any(UserI.class), anyBoolean());
+
+        projectFilesystemSettingsService = new ProjectFilesystemSettingsServiceImpl(projectFilesystemSettingsEntityService,
+                Arrays.asList(awsS3FilesystemService, defaultFilesystemService),
+                Collections.singletonList(awsS3ConfigEntityService));
+    }
+
+    @After
+    public void cleanup() throws IOException {
+        FileUtils.deleteDirectory(new File(writableArchivePath));
+    }
+
+    private ProjectFilesystemSettings createProject(String project, boolean uploadOutputs, AwsS3Config someArchiverConfig)
+            throws Exception {
+        ProjectFilesystemSettings pfs = new ProjectFilesystemSettings(project);
+        pfs.setDirectUploadOutputs(uploadOutputs);
+        pfs.setArchiverConfig(someArchiverConfig);
+        projectFilesystemSettingsService.createOrUpdateFromPojo(pfs);
+        return pfs;
+    }
+
+    @Test
+    @DirtiesContext
+    public void testFindPojoByProject() throws Exception {
+        ProjectFilesystemSettings pfs = createProject(supportedProject, true, archiverConfig);
+        ProjectFilesystemSettings storedPfs = projectFilesystemSettingsService.getSettingsForProject(supportedProject);
+        assertThat(storedPfs, isIgnoreId(pfs));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetPojoForAllProjects() throws Exception {
+        ProjectFilesystemSettings pfs = createProject(supportedProject, true, archiverConfig);
+        ProjectFilesystemSettings pfs2 = createProject(otherProject, false, archiverAltConfig);
+        List<ProjectFilesystemSettings> retrieved = projectFilesystemSettingsService.getPojoForAllProjects(mockUser);
+        ArrayList<XnatProjectdata> projects = XnatProjectdata.getAllXnatProjectdatas(mockUser, false);
+        assertThat(retrieved, hasSize(projects.size()));
+        assertThat(retrieved, new IsIterableContaining<>(isIgnoreId(pfs)));
+        assertThat(retrieved, new IsIterableContaining<>(isIgnoreId(pfs2)));
+        for (XnatProjectdata project : projects) {
+            String projectId = project.getId();
+            if (supportedProject.equals(projectId) || otherProject.equals(projectId)) {
+                continue;
+            }
+            ProjectFilesystemSettings pojo = new ProjectFilesystemSettings(projectId);
+            assertThat(retrieved, hasItem(pojo));
+        }
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetArchiverFilesystemForProject() throws Exception {
+        createProject(supportedProject, true, archiverConfig);
+        assertThat(projectFilesystemSettingsService.getArchiverFilesystemForProject(supportedProject, false),
+                is(awsS3FilesystemService));
+        assertThat(projectFilesystemSettingsService.getArchiverFilesystemForProject(supportedProject, true),
+                is(awsS3FilesystemService));
+
+        createProject(otherProject, false, archiverConfig);
+        assertThat(projectFilesystemSettingsService.getArchiverFilesystemForProject(otherProject, false),
+                is(awsS3FilesystemService));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetArchiverFilesystemForUnsupportedProject1() throws Exception {
+        exceptionRule.expect(UnsupportedRemoteFilesOperationException.class);
+        exceptionRule.expectMessage("Project " + otherProject + " not configured for filesystems plugin");
+        projectFilesystemSettingsService.getArchiverFilesystemForProject(otherProject, false);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetArchiverFilesystemForUnsupportedProject2() throws Exception {
+        exceptionRule.expect(UnsupportedRemoteFilesOperationException.class);
+        exceptionRule.expectMessage("Project " + otherProject + " not configured for filesystems plugin");
+        projectFilesystemSettingsService.getArchiverFilesystemForProject(otherProject, true);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetArchiverFilesystemForUnsupportedProject3() throws Exception {
+        createProject(otherProject, false, null);
+        exceptionRule.expect(UnsupportedRemoteFilesOperationException.class);
+        exceptionRule.expectMessage("No archiver filesystem configured for project " + otherProject);
+        projectFilesystemSettingsService.getArchiverFilesystemForProject(otherProject, false);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetArchiverFilesystemForUnsupportedProject4() throws Exception {
+        createProject(otherProject, true, null);
+        exceptionRule.expect(UnsupportedRemoteFilesOperationException.class);
+        exceptionRule.expectMessage("No archiver filesystem configured for project " + otherProject);
+        projectFilesystemSettingsService.getArchiverFilesystemForProject(otherProject, true);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetArchiverFilesystemForUnsupportedProject5() throws Exception {
+        createProject(otherProject, false, nonArchiverConfig);
+        exceptionRule.expect(UnsupportedRemoteFilesOperationException.class);
+        exceptionRule.expectMessage("No archiver filesystem configured for project " + otherProject);
+        assertThat(projectFilesystemSettingsService.getArchiverFilesystemForProject(otherProject, false),
+                is(awsS3FilesystemService));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetArchiverFilesystemForUnsupportedProject6() throws Exception {
+        createProject(otherProject, true, nonArchiverConfig);
+        exceptionRule.expect(UnsupportedRemoteFilesOperationException.class);
+        exceptionRule.expectMessage("No archiver filesystem configured for project " + otherProject);
+        assertThat(projectFilesystemSettingsService.getArchiverFilesystemForProject(otherProject, true),
+                is(awsS3FilesystemService));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetArchiverFilesystemForInvalidEntity() throws Exception {
+        // invalid bc our mock awsS3FilesystemService doesn't serve it
+        exceptionRule.expect(NoSuchFilesystemException.class);
+        exceptionRule.expectMessage("No filesystem service configured for config " + invalidArchiverConfig);
+        createProject(otherProject, true, invalidArchiverConfig);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testGetArchiverFilesystemForUnsupportedProjectProcOutputs() throws Exception {
+        createProject(otherProject, false, archiverConfig);
+        exceptionRule.expect(UnsupportedRemoteFilesOperationException.class);
+        exceptionRule.expectMessage("Project " + otherProject + " not configured to automatically " +
+                "upload processing outputs to remote filesystem");
+        projectFilesystemSettingsService.getArchiverFilesystemForProject(otherProject, true);
+    }
+
+    @Test
+    @DirtiesContext
+    public void testUpdate() throws Exception {
+        // create project settings with an archiver, ensure that it's added as a permitted project and that filesystem service is updated
+        ProjectFilesystemSettings pfs = createProject(supportedProject, true, archiverAltConfig);
+        AwsS3ConfigEntity altArchiverEntity = awsS3ConfigEntityService.get(archiverAltConfig.getId());
+        Mockito.verify(awsS3FilesystemService, Mockito.times(1)).updateProjectArchiver(supportedProject, altArchiverEntity.getId());
+        assertThat(altArchiverEntity.getPermittedProjects(), hasItem(supportedProject));
+
+        // update with new archiver, ensure that it's added as a permitted project
+        ProjectFilesystemSettings retrieved = projectFilesystemSettingsService.getSettingsForProject(supportedProject);
+        assertThat(retrieved.getArchiverConfig(), is(archiverAltConfig));
+        retrieved.setArchiverConfig(archiverConfig);
+        projectFilesystemSettingsService.createOrUpdateFromPojo(retrieved);
+        Mockito.verify(awsS3FilesystemService, Mockito.times(1)).updateProjectArchiver(supportedProject, null);
+        Mockito.verify(awsS3FilesystemService, Mockito.times(1)).updateProjectArchiver(supportedProject, archiverConfig.getId());
+        AwsS3ConfigEntity archiverEntity = awsS3ConfigEntityService.get(archiverConfig.getId());
+        assertThat(archiverEntity.getPermittedProjects(), hasItem(supportedProject));
+
+        // Make sure it's properly updated
+        ProjectFilesystemSettings retrieved2 = projectFilesystemSettingsService.getSettingsForProject(supportedProject);
+        assertThat(retrieved2.getArchiverConfig(), is(archiverConfig));
+        assertThat(retrieved2.getCleanupInterval(), is(pfs.getCleanupInterval()));
+        assertThat(retrieved2.isDirectUploadOutputs(), is(pfs.isDirectUploadOutputs()));
+        assertThat(retrieved2.getId(), is(retrieved.getId()));
+
+        // remove archiver and make sure this updates correctly, too
+        retrieved2.setArchiverConfig(null);
+        projectFilesystemSettingsService.createOrUpdateFromPojo(retrieved2);
+        Mockito.verify(awsS3FilesystemService, Mockito.times(2)).updateProjectArchiver(supportedProject, null);
+
+        // Make sure it's still permitted to read these archivers
+        AwsS3ConfigEntity archiverEntity2 = awsS3ConfigEntityService.get(archiverConfig.getId());
+        assertThat(archiverEntity2.getPermittedProjects(), hasItem(supportedProject));
+        AwsS3ConfigEntity altArchiverEntity2 = awsS3ConfigEntityService.get(altArchiverEntity.getId());
+        assertThat(altArchiverEntity2.getPermittedProjects(), hasItem(supportedProject));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testUpdateRollbackBadId() throws Exception {
+        createProject(supportedProject, true, archiverAltConfig);
+        // update with bad id on archiver, make sure other changes don't persist
+        ProjectFilesystemSettings retrieved = projectFilesystemSettingsService.getSettingsForProject(supportedProject);
+        assertThat(retrieved.getArchiverConfig(), is(archiverAltConfig));
+        int cleanupOrig = retrieved.getCleanupInterval();
+        retrieved.setCleanupInterval(cleanupOrig+10); // ensure it's different
+        archiverConfig.setId(30L); // no such ID
+        retrieved.setArchiverConfig(archiverConfig);
+        TestingUtils.expectException(InvalidEntityException.class, "No filesystem config entity with id " + archiverConfig.getId(), () -> {
+            projectFilesystemSettingsService.createOrUpdateFromPojo(retrieved);
+            return null;
+        });
+        ProjectFilesystemSettings retrievedAnew = projectFilesystemSettingsService.getSettingsForProject(supportedProject);
+        assertThat(retrievedAnew.getCleanupInterval(), is(cleanupOrig));
+        assertThat(retrievedAnew.getArchiverConfig(), is(archiverAltConfig));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testUpdateRollbackBadBucket() throws Exception {
+        createProject(supportedProject, true, archiverAltConfig);
+        // update with archiver with bad bucketname (not known to filesystem service), make sure other changes don't persist
+        ProjectFilesystemSettings retrieved = projectFilesystemSettingsService.getSettingsForProject(supportedProject);
+        assertThat(retrieved.getArchiverConfig(), is(archiverAltConfig));
+        int cleanupOrig = retrieved.getCleanupInterval();
+        retrieved.setCleanupInterval(cleanupOrig+10); // ensure it's different
+        String name = "random";
+        archiverConfig.setBucketName(name); // no such bucket
+        retrieved.setArchiverConfig(archiverConfig);
+        String msg = "Archiver id " + archiverConfig.getId() + " not found in cache.";
+        Mockito.when(awsS3FilesystemService.servesConfig(archiverConfig)).thenReturn(true);
+        Mockito.doThrow(new InvalidEntityException(msg))
+                .when(awsS3FilesystemService).updateProjectArchiver(supportedProject, archiverConfig.getId());
+        TestingUtils.expectException(InvalidEntityException.class, msg, () -> {
+            projectFilesystemSettingsService.createOrUpdateFromPojo(retrieved);
+            return null;
+        });
+        ProjectFilesystemSettings retrievedAnew = projectFilesystemSettingsService.getSettingsForProject(supportedProject);
+        assertThat(retrievedAnew.getCleanupInterval(), is(cleanupOrig));
+        assertThat(retrievedAnew.getArchiverConfig(), is(archiverAltConfig));
+    }
+
+    @Test
+    @DirtiesContext
+    public void testUpdateRollbackUnservedConfig() throws Exception {
+        createProject(supportedProject, true, archiverAltConfig);
+        // update with archiver with bad bucketname (not known to filesystem service), make sure other changes don't persist
+        ProjectFilesystemSettings retrieved = projectFilesystemSettingsService.getSettingsForProject(supportedProject);
+        assertThat(retrieved.getArchiverConfig(), is(archiverAltConfig));
+        int cleanupOrig = retrieved.getCleanupInterval();
+        retrieved.setCleanupInterval(cleanupOrig+10); // ensure it's different
+        String name = "random";
+        archiverConfig.setBucketName(name); // no such bucket
+        retrieved.setArchiverConfig(archiverConfig);
+        String msg = "No filesystem service configured for config " + archiverConfig;
+        Mockito.when(awsS3FilesystemService.servesConfig(archiverConfig)).thenReturn(false);
+        TestingUtils.expectException(NoSuchFilesystemException.class, msg, () -> {
+            projectFilesystemSettingsService.createOrUpdateFromPojo(retrieved);
+            return null;
+        });
+        ProjectFilesystemSettings retrievedAnew = projectFilesystemSettingsService.getSettingsForProject(supportedProject);
+        assertThat(retrievedAnew.getCleanupInterval(), is(cleanupOrig));
+        assertThat(retrievedAnew.getArchiverConfig(), is(archiverAltConfig));
+    }
+
+    private Matcher<ProjectFilesystemSettings> isIgnoreId(final ProjectFilesystemSettings expected) {
+        final String description = "a ProjectFilesystemSettings equal to (other than the ID) one of " + expected;
+        return new CustomTypeSafeMatcher<ProjectFilesystemSettings>(description) {
+            @Override
+            public boolean matchesSafely(final ProjectFilesystemSettings actual) {
+                boolean modified = false;
+                if (expected.getId() == 0L) {
+                    expected.setId(actual.getId());
+                    modified = true;
+                }
+                boolean matches = actual.equals(expected);
+                if (modified) {
+                    expected.setId(0L);
+                }
+                return matches;
+            }
+        };
+    }
+}
