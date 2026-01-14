@@ -24,11 +24,6 @@ import org.nrg.xdat.security.user.XnatUserProvider;
 import org.nrg.xft.security.UserI;
 import org.nrg.xnat.node.entities.XnatNodeInfo;
 import org.nrg.xnat.node.services.impl.HibernateXnatNodeInfoService;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-import org.powermock.modules.junit4.PowerMockRunnerDelegate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
@@ -42,14 +37,11 @@ import java.util.List;
 import static org.hamcrest.Matchers.*;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.Assert.*;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 
 @Slf4j
-@RunWith(PowerMockRunner.class)
-@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
-@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
-@PrepareForTest({AutoXnatAbstractresource.class, RemoteFilesTrackerEntityServiceImpl.class})
+@RunWith(SpringJUnit4ClassRunner.class)
 @ContextConfiguration(classes = {TestConfig.class})
 public class RemoteFilesTrackerEntityServiceTest {
     @Autowired private SiteConfigPreferences siteConfigPreferences;
@@ -107,11 +99,11 @@ public class RemoteFilesTrackerEntityServiceTest {
         // Mock resource check
         Mockito.when(primaryAdminUserProvider.get()).thenReturn(mockUser);
         PowerMockito.spy(AutoXnatAbstractresource.class);
-        PowerMockito.doReturn(null).when(AutoXnatAbstractresource.class,
+        Mockito.doReturn(null).when(AutoXnatAbstractresource.class,
                 "getXnatAbstractresourcesByXnatAbstractresourceId", anyInt(), eq(mockUser), eq(false));
-        PowerMockito.doReturn(catRes).when(AutoXnatAbstractresource.class,
+        Mockito.doReturn(catRes).when(AutoXnatAbstractresource.class,
                 "getXnatAbstractresourcesByXnatAbstractresourceId", catResId, mockUser, false);
-        PowerMockito.doReturn(scanCatRes).when(AutoXnatAbstractresource.class,
+        Mockito.doReturn(scanCatRes).when(AutoXnatAbstractresource.class,
                 "getXnatAbstractresourcesByXnatAbstractresourceId", scanCatResId, mockUser, false);
 
         // Need nodeinfo for association

@@ -24,6 +24,7 @@ import com.radiologics.filesystems.model.entity.ProjectFilesystemSettingsEntity;
 import com.radiologics.filesystems.services.ProjectFilesystemSettingsEntityService;
 import com.radiologics.filesystems.utils.TestingUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -31,14 +32,10 @@ import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
+import org.mockito.MockedStatic;
 import org.nrg.xdat.om.XnatProjectdata;
 import org.nrg.xdat.om.base.auto.AutoXnatProjectdata;
 import org.nrg.xft.security.UserI;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-import org.powermock.modules.junit4.PowerMockRunnerDelegate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
@@ -51,18 +48,12 @@ import static com.radiologics.filesystems.aws.s3.model.auto.AwsS3Config.WRITE_CH
 import static org.hamcrest.Matchers.*;
 import static org.junit.Assert.*;
 import static com.radiologics.filesystems.config.SharedStrings.*;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 @Slf4j
-@RunWith(PowerMockRunner.class)
-@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
-@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
-@PrepareForTest({AmazonS3ClientBuilder.class, TransferManagerBuilder.class, BasicAWSCredentials.class,
-        AWSStaticCredentialsProvider.class, AwsS3FilesystemService.class, TransferProgress.class, AwsS3Config.class,
-        MockAwsS3.class, AutoXnatProjectdata.class
-})
+@RunWith(SpringJUnit4ClassRunner.class)
 @ContextConfiguration(classes = {TestConfig.class, AwsS3MockTestConfig.class})
 public class AwsS3ConfigEntityServiceTest {
     @Autowired private AwsS3ConfigEntityService awsS3ConfigEntityService;
@@ -81,6 +72,7 @@ public class AwsS3ConfigEntityServiceTest {
     @Mock private AwsS3FilesystemService awsS3FilesystemService;
 
     private MockAwsS3 mockAwsS3;
+    private MockedStatic<AutoXnatProjectdata> mockedAutoXnatProjectdata;
 
     @Rule
     public ExpectedException exceptionRule = ExpectedException.none();
@@ -89,15 +81,23 @@ public class AwsS3ConfigEntityServiceTest {
     public void setup() throws Exception {
         mockAwsS3 = new MockAwsS3(); //need to reset each time
 
-        PowerMockito.mockStatic(AutoXnatProjectdata.class);
+        // Mock static method with Mockito 5
+        mockedAutoXnatProjectdata = Mockito.mockStatic(AutoXnatProjectdata.class);
         ArrayList<XnatProjectdata> projectList = new ArrayList<>();
         for (String project : allProjectArrayList) {
             XnatProjectdata xnatProjectdata = Mockito.mock(XnatProjectdata.class);
             Mockito.when(xnatProjectdata.getId()).thenReturn(project);
             projectList.add(xnatProjectdata);
         }
-        PowerMockito.doReturn(projectList).when(AutoXnatProjectdata.class,
-                "getAllXnatProjectdatas", any(UserI.class), anyBoolean());
+        mockedAutoXnatProjectdata.when(() -> AutoXnatProjectdata.getAllXnatProjectdatas(any(UserI.class), anyBoolean()))
+                .thenReturn(projectList);
+    }
+
+    @After
+    public void teardown() {
+        if (mockedAutoXnatProjectdata != null) {
+            mockedAutoXnatProjectdata.close();
+        }
     }
 
     @Test

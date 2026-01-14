@@ -33,12 +33,6 @@ import org.nrg.xdat.model.CatEntryI;
 import org.nrg.xdat.preferences.SiteConfigPreferences;
 import org.nrg.xnat.services.XnatAppInfo;
 import org.nrg.xnat.utils.CatalogUtils;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-import org.powermock.modules.junit4.PowerMockRunnerDelegate;
-import org.powermock.reflect.Whitebox;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.concurrent.ThreadPoolExecutorFactoryBean;
@@ -57,21 +51,13 @@ import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.*;
 import static org.hamcrest.io.FileMatchers.*;
 import static org.junit.Assert.*;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 
 @Slf4j
-@RunWith(PowerMockRunner.class)
-//@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
-@PowerMockRunnerDelegate(Parameterized.class)
+@RunWith(Parameterized.class)
 @Parameterized.UseParametersRunnerFactory(SpringJUnit4ClassRunnerFactory.class)
-@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
-@PrepareForTest({
-        AmazonS3ClientBuilder.class, TransferManagerBuilder.class, BasicAWSCredentials.class,
-        AWSStaticCredentialsProvider.class, AwsS3FilesystemService.class, TransferProgress.class,
-        MockAwsS3.class, AwsS3Config.class
-})
 @ContextConfiguration(classes = {TestConfig.class, AwsS3MockTestConfig.class})
 public class AwsS3FilesystemServiceTest {
     @Parameterized.Parameters(name = "isPrimary={0}")
@@ -203,7 +189,7 @@ public class AwsS3FilesystemServiceTest {
     @DirtiesContext
     public void testExpiredPerms() throws Exception {
         // fake scenario where creds "go bad", e.g. perms changed on bucket
-        PowerMockito.whenNew(BasicAWSCredentials.class).withArguments(eq(fakeAccessKey), anyString())
+        Mockito.whenNew(BasicAWSCredentials.class).withArguments(eq(fakeAccessKey), anyString())
                 .thenReturn(mockAwsS3.mockCredBad);
         forceRefreshCache();
         exceptionRule.expect(InactiveUnpermittedOrNotWritableFilesystemException.class);

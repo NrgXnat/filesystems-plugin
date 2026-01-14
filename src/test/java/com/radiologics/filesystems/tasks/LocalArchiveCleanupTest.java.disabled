@@ -32,11 +32,6 @@ import org.nrg.xnat.services.XnatAppInfo;
 import org.nrg.xnat.services.archive.CatalogService;
 import org.nrg.xnat.task.AbstractXnatTask;
 import org.nrg.xnat.turbine.utils.ArchivableItem;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-import org.powermock.modules.junit4.PowerMockRunnerDelegate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
@@ -48,19 +43,14 @@ import java.util.Arrays;
 import java.util.List;
 
 import static com.radiologics.filesystems.config.SharedStrings.*;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Matchers.anyListOf;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 
 @Slf4j
-@RunWith(PowerMockRunner.class)
-@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
-@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
-@PrepareForTest({UriParserUtils.class, AbstractXnatTask.class, DatabaseHelper.class, BaseXnatProjectdata.class,
-        AutoXnatProjectdata.class})
+@RunWith(SpringJUnit4ClassRunner.class)
 @ContextConfiguration(classes = {TestConfig.class})
 public class LocalArchiveCleanupTest {
     @Autowired private XnatUserProvider primaryAdminUserProvider;
@@ -98,14 +88,14 @@ public class LocalArchiveCleanupTest {
                 .thenReturn(Boolean.TRUE);
 
         DatabaseHelper databaseHelper = Mockito.mock(DatabaseHelper.class);
-        PowerMockito.whenNew(DatabaseHelper.class).withParameterTypes(JdbcTemplate.class)
+        Mockito.whenNew(DatabaseHelper.class).withParameterTypes(JdbcTemplate.class)
                 .withArguments(any(JdbcTemplate.class)).thenReturn(databaseHelper);
 
         // XNAT objects
-        PowerMockito.mockStatic(UriParserUtils.class);
-        PowerMockito.when(UriParserUtils.getArchiveUri(project)).thenReturn(uri);
-        PowerMockito.when(UriParserUtils.getArchiveUri(subject)).thenReturn(uri);
-        PowerMockito.when(UriParserUtils.getArchiveUri(session)).thenReturn(uri);
+        Mockito.mockStatic(UriParserUtils.class);
+        Mockito.when(UriParserUtils.getArchiveUri(project)).thenReturn(uri);
+        Mockito.when(UriParserUtils.getArchiveUri(subject)).thenReturn(uri);
+        Mockito.when(UriParserUtils.getArchiveUri(session)).thenReturn(uri);
         Mockito.when(mockCatalogService.getResourceDataFromUri(uri)).thenReturn(mockResourceData);
         Mockito.when(mockResourceData.getXnatUri()).thenReturn(itemURIObj);
         Mockito.when(itemURIObj.getResources(true)).thenReturn(resources);
@@ -117,8 +107,8 @@ public class LocalArchiveCleanupTest {
         ArrayList<XnatExperimentdata> exp = new ArrayList<>();
         exp.add(session);
         Mockito.when(project.getExperiments()).thenReturn(exp);
-        PowerMockito.mockStatic(BaseXnatProjectdata.class);
-        PowerMockito.doReturn(project).when(BaseXnatProjectdata.class, "getProjectByIDorAlias",
+        Mockito.mockStatic(BaseXnatProjectdata.class);
+        Mockito.doReturn(project).when(BaseXnatProjectdata.class, "getProjectByIDorAlias",
                 eq(supportedProject), any(UserI.class), anyBoolean());
 
         filesystemServices = Arrays.asList(mockAwsS3FilesystemService, mockDefaultFilesystemService);
@@ -130,10 +120,10 @@ public class LocalArchiveCleanupTest {
         Mockito.when(mockProjectFilesystemSettingsService.getSettingsForProject(supportedProject))
                 .thenReturn(mockSettings);
 
-        PowerMockito.mockStatic(AutoXnatProjectdata.class);
+        Mockito.mockStatic(AutoXnatProjectdata.class);
         ArrayList<XnatProjectdata> projectList = new ArrayList<>();
         projectList.add(project);
-        PowerMockito.doReturn(projectList).when(AutoXnatProjectdata.class,
+        Mockito.doReturn(projectList).when(AutoXnatProjectdata.class,
                 "getAllXnatProjectdatas", any(UserI.class), anyBoolean());
     }
 
@@ -146,7 +136,7 @@ public class LocalArchiveCleanupTest {
                 mockProjectFilesystemSettingsService, mockCatalogService, taskService, appInfo, jdbcTemplate);
         lac.runTask();
         Mockito.verify(mockRemoteFilesService, Mockito.never()).pushItem(any(ArchivableItem.class),
-                anyListOf(XnatAbstractresourceI.class), any(UserI.class), any(FilesystemService.class), anyInt());
+                anyList(), any(UserI.class), any(FilesystemService.class), anyInt());
     }
 
     @Test
@@ -157,7 +147,7 @@ public class LocalArchiveCleanupTest {
 
         // ensure called once per type (project, subject, session)
         Mockito.verify(mockRemoteFilesService, Mockito.times(3)).pushItem(any(ArchivableItem.class),
-                anyListOf(XnatAbstractresourceI.class), any(UserI.class), any(FilesystemService.class), anyInt());
+                anyList(), any(UserI.class), any(FilesystemService.class), anyInt());
         // ensure called only once with these exact params
         Mockito.verify(mockRemoteFilesService, Mockito.times(1)).pushItem(project,
                 resources, mockUser, mockAwsS3FilesystemService, cleanupInterval);

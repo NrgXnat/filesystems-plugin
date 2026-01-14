@@ -41,11 +41,6 @@ import org.nrg.xdat.security.services.PermissionsServiceI;
 import org.nrg.xft.ItemI;
 import org.nrg.xft.security.UserI;
 import org.nrg.xnat.exceptions.UnsupportedRemoteFilesOperationException;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-import org.powermock.modules.junit4.PowerMockRunnerDelegate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
@@ -61,17 +56,11 @@ import static org.hamcrest.CoreMatchers.hasItem;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.Assert.assertThat;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 
 @Slf4j
-@RunWith(PowerMockRunner.class)
-@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
-@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
-@PrepareForTest({AutoXnatProjectdata.class, AmazonS3ClientBuilder.class, TransferManagerBuilder.class,
-        BasicAWSCredentials.class, AWSStaticCredentialsProvider.class, AwsS3FilesystemService.class,
-        TransferProgress.class, MockAwsS3.class, AwsS3Config.class
-})
+@RunWith(SpringJUnit4ClassRunner.class)
 @ContextConfiguration(classes = {TestConfig.class, AwsS3MockTestConfig.class})
 public class ProjectFilesystemSettingsServiceTest {
     @Autowired private PermissionsServiceI mockPermissionsService;
@@ -124,14 +113,14 @@ public class ProjectFilesystemSettingsServiceTest {
         invalidArchiverConfig = awsS3ConfigEntityService.createOrUpdateFromPojo(awsAltArchiverConfig,
                 true, awsS3FilesystemService);
 
-        PowerMockito.mockStatic(AutoXnatProjectdata.class);
+        Mockito.mockStatic(AutoXnatProjectdata.class);
         ArrayList<XnatProjectdata> projectList = new ArrayList<>();
         for (String project : allProjectArrayList) {
             XnatProjectdata xnatProjectdata = Mockito.mock(XnatProjectdata.class);
             Mockito.when(xnatProjectdata.getId()).thenReturn(project);
             projectList.add(xnatProjectdata);
         }
-        PowerMockito.doReturn(projectList).when(AutoXnatProjectdata.class,
+        Mockito.doReturn(projectList).when(AutoXnatProjectdata.class,
                 "getAllXnatProjectdatas", any(UserI.class), anyBoolean());
 
         projectFilesystemSettingsService = new ProjectFilesystemSettingsServiceImpl(projectFilesystemSettingsEntityService,

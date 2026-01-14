@@ -32,11 +32,6 @@ import org.nrg.xnat.node.entities.XnatNodeInfo;
 import org.nrg.xnat.node.services.XnatNodeInfoService;
 import org.nrg.xnat.node.services.impl.HibernateXnatNodeInfoService;
 import org.nrg.xnat.utils.CatalogUtils;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-import org.powermock.modules.junit4.PowerMockRunnerDelegate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.concurrent.ThreadPoolExecutorFactoryBean;
 import org.springframework.test.annotation.DirtiesContext;
@@ -57,15 +52,11 @@ import static com.radiologics.filesystems.config.SharedStrings.*;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
-import static org.mockito.Matchers.*;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.eq;
 
 
-@RunWith(PowerMockRunner.class)
-@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
-@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
-@PrepareForTest({PersistentWorkflowUtils.class, UriParserUtils.class, AutoXnatAbstractresource.class,
-        RemoteFilesTrackerEntityServiceImpl.class, CatalogUtils.class, EventUtils.class})
+@RunWith(SpringJUnit4ClassRunner.class)
 @Slf4j
 @ContextConfiguration(classes = {TestConfig.class})
 public class RemoteFilesPluginConcurrencyTest {
@@ -93,26 +84,26 @@ public class RemoteFilesPluginConcurrencyTest {
         Mockito.when(mockUser.getLogin()).thenReturn("mockUser");
 
         // No workflows
-        PowerMockito.mockStatic(EventUtils.class);
-        PowerMockito.doReturn("").when(EventUtils.class, "getAddModifyAction",
+        Mockito.mockStatic(EventUtils.class);
+        Mockito.doReturn("").when(EventUtils.class, "getAddModifyAction",
                 anyString(), anyBoolean());
-        PowerMockito.doReturn(Mockito.mock(EventDetails.class)).when(EventUtils.class, "newEventInstance",
+        Mockito.doReturn(Mockito.mock(EventDetails.class)).when(EventUtils.class, "newEventInstance",
                 any(EventUtils.CATEGORY.class), any(EventUtils.TYPE.class), anyString(), anyString(), anyString());
 
         PersistentWorkflowI mockWrk = Mockito.mock(PersistentWorkflowI.class);
         EventMetaI mockEventMeta = Mockito.mock(EventMetaI.class);
         Mockito.when(mockWrk.buildEvent()).thenReturn(mockEventMeta);
         Mockito.when(mockEventMeta.getEventId()).thenReturn(1);
-        PowerMockito.mockStatic(PersistentWorkflowUtils.class);
-        PowerMockito.doReturn(Collections.emptyList()).when(PersistentWorkflowUtils.class, "getOpenWorkflows",
+        Mockito.mockStatic(PersistentWorkflowUtils.class);
+        Mockito.doReturn(Collections.emptyList()).when(PersistentWorkflowUtils.class, "getOpenWorkflows",
                 eq(mockUser), anyString());
-        PowerMockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "getOrCreateWorkflowData",
+        Mockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "getOrCreateWorkflowData",
                 anyInt(), eq(mockUser), any(XFTItem.class), any(EventDetails.class));
-        PowerMockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "buildOpenWorkflow",
+        Mockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "buildOpenWorkflow",
                 eq(mockUser), any(XFTItem.class), any(EventDetails.class));
 
         // URI parsing
-        PowerMockito.mockStatic(UriParserUtils.class);
+        Mockito.mockStatic(UriParserUtils.class);
 
         //Mock objects
         session = Mockito.mock(XnatMrsessiondata.class);

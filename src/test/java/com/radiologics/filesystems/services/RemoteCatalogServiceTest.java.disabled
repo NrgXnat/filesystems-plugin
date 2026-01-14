@@ -52,12 +52,6 @@ import org.nrg.xnat.node.entities.XnatNodeInfo;
 import org.nrg.xnat.node.services.impl.HibernateXnatNodeInfoService;
 import org.nrg.xnat.services.archive.CatalogService;
 import org.nrg.xnat.utils.CatalogUtils;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-import org.powermock.modules.junit4.PowerMockRunnerDelegate;
-import org.powermock.reflect.Whitebox;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
@@ -75,20 +69,14 @@ import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.Matchers.*;
 import static org.hamcrest.io.FileMatchers.anExistingFile;
 import static org.junit.Assert.assertThat;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 
 @Slf4j
-@RunWith(PowerMockRunner.class)
-@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
-@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
-@PrepareForTest({AmazonS3ClientBuilder.class, TransferManagerBuilder.class, BasicAWSCredentials.class,
-        AWSStaticCredentialsProvider.class, AwsS3FilesystemService.class, TransferProgress.class, MockAwsS3.class,
-        AwsS3Config.class, PersistentWorkflowUtils.class, UriParserUtils.class, AutoXnatAbstractresource.class,
-        RemoteFilesTrackerEntityServiceImpl.class, CatalogUtils.class, EventUtils.class, RemoteCatalogServiceImpl.class})
+@RunWith(SpringJUnit4ClassRunner.class)
 @ContextConfiguration(classes = {TestConfig.class, IntegrationTestConfig.class})
 public class RemoteCatalogServiceTest {
     @Autowired private SiteConfigPreferences siteConfigPreferences;
@@ -150,27 +138,27 @@ public class RemoteCatalogServiceTest {
                 any(XnatResourcecatalog.class), any(Integer.class));
 
         // No workflows
-        PowerMockito.mockStatic(EventUtils.class);
-        PowerMockito.doReturn("").when(EventUtils.class, "getAddModifyAction",
+        Mockito.mockStatic(EventUtils.class);
+        Mockito.doReturn("").when(EventUtils.class, "getAddModifyAction",
                 anyString(), anyBoolean());
-        PowerMockito.doReturn(Mockito.mock(EventDetails.class)).when(EventUtils.class, "newEventInstance",
+        Mockito.doReturn(Mockito.mock(EventDetails.class)).when(EventUtils.class, "newEventInstance",
                 any(EventUtils.CATEGORY.class), any(EventUtils.TYPE.class), anyString(), anyString(), anyString());
 
         PersistentWorkflowI mockWrk = Mockito.mock(PersistentWorkflowI.class);
         EventMetaI mockEventMeta = Mockito.mock(EventMetaI.class);
         Mockito.when(mockWrk.buildEvent()).thenReturn(mockEventMeta);
         Mockito.when(mockEventMeta.getEventId()).thenReturn(1);
-        PowerMockito.mockStatic(PersistentWorkflowUtils.class);
-        PowerMockito.doReturn(Collections.emptyList()).when(PersistentWorkflowUtils.class, "getOpenWorkflows",
+        Mockito.mockStatic(PersistentWorkflowUtils.class);
+        Mockito.doReturn(Collections.emptyList()).when(PersistentWorkflowUtils.class, "getOpenWorkflows",
                 eq(mockUser), anyString());
-        PowerMockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "getOrCreateWorkflowData",
+        Mockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "getOrCreateWorkflowData",
                 anyInt(), eq(mockUser), any(XFTItem.class), any(EventDetails.class));
-        PowerMockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "buildOpenWorkflow",
+        Mockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "buildOpenWorkflow",
                 eq(mockUser), any(XFTItem.class), any(EventDetails.class));
 
 
         // URI parsing
-        PowerMockito.mockStatic(UriParserUtils.class);
+        Mockito.mockStatic(UriParserUtils.class);
 
         //Mock objects
         scan = Mockito.mock(XnatMrscandata.class);
@@ -210,9 +198,9 @@ public class RemoteCatalogServiceTest {
         mockSesUri = "/archive/experiments/" + session.getId();
         mockCatResUri = mockSesUri + "/resources/" + catRes.getLabel();
         mockScanUri = mockSesUri + "/scans/" + scan.getId();
-        PowerMockito.when(UriParserUtils.parseURI(mockSesUri)).thenReturn(mockSesUriObj);
-        PowerMockito.when(UriParserUtils.parseURI(mockCatResUri)).thenReturn(mockCatResUriObj);
-        PowerMockito.when(UriParserUtils.parseURI(mockScanUri)).thenReturn(mockScanUriObj);
+        Mockito.when(UriParserUtils.parseURI(mockSesUri)).thenReturn(mockSesUriObj);
+        Mockito.when(UriParserUtils.parseURI(mockCatResUri)).thenReturn(mockCatResUriObj);
+        Mockito.when(UriParserUtils.parseURI(mockScanUri)).thenReturn(mockScanUriObj);
         Mockito.when(mockSesUriObj.getSecurityItem()).thenReturn(session);
         Mockito.when(mockCatResUriObj.getSecurityItem()).thenReturn(session);
         Mockito.when(mockScanUriObj.getSecurityItem()).thenReturn(session);
@@ -257,7 +245,7 @@ public class RemoteCatalogServiceTest {
         File catFile = Paths.get(mockSesArchivePath, "RESOURCES",
                 label,label + "_catalog.xml").toFile();
         ResourcesExptURI resUriObj = Mockito.mock(ResourcesExptURI.class);
-        PowerMockito.when(UriParserUtils.parseURI(uri)).thenReturn(resUriObj);
+        Mockito.when(UriParserUtils.parseURI(uri)).thenReturn(resUriObj);
         Mockito.when(resUriObj.getSecurityItem()).thenReturn(session);
         Mockito.when(resUriObj.getResourceFilePath()).thenReturn("");
         Mockito.when(resUriObj.getXnatResource()).thenReturn(null);
@@ -311,7 +299,7 @@ public class RemoteCatalogServiceTest {
         String label = "NEW";
         String uri = mockSesUri + "/resources/" + label;
         ResourcesExptURI newUriObj = Mockito.mock(ResourcesExptURI.class);
-        PowerMockito.when(UriParserUtils.parseURI(uri)).thenReturn(newUriObj);
+        Mockito.when(UriParserUtils.parseURI(uri)).thenReturn(newUriObj);
         Mockito.when(newUriObj.getSecurityItem()).thenReturn(session);
         exceptionRule.expect(ClientException.class);
         exceptionRule.expectMessage("Resource URI: " + uri +
