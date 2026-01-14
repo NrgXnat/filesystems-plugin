@@ -159,7 +159,9 @@ public class TestConfig {
 
     @Bean
     public XnatNode xnatNode() {
-        return Mockito.mock(XnatNode.class);
+        XnatNode xnatNode = Mockito.mock(XnatNode.class);
+        Mockito.when(xnatNode.getNodeId()).thenReturn("1");
+        return xnatNode;
     }
 
     /*
