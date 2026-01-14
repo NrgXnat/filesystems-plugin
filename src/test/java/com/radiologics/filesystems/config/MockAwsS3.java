@@ -51,7 +51,11 @@ public class MockAwsS3 {
         Mockito.when(mockS3client.doesBucketExistV2(fakeBucketNameNoVersion)).thenReturn(true);
         Mockito.when(mockS3client.doesBucketExistV2(fakeBucketNameReadonly)).thenReturn(true);
         Mockito.when(mockS3client.doesBucketExistV2(fakeBucketNameBad)).thenReturn(false);
-        Mockito.when(mockS3client.doesBucketExistV2(fakeBucketNameAlt)).thenReturn(true);
+        // fakeBucketNameAlt is used by invalidCredsAwsConfig to simulate bad AWS credentials
+        AmazonServiceException badCredsException = new AmazonServiceException(badCredsExceptionMsg);
+        badCredsException.setErrorCode("InvalidAccessKeyId");
+        badCredsException.setStatusCode(403);
+        Mockito.when(mockS3client.doesBucketExistV2(fakeBucketNameAlt)).thenThrow(badCredsException);
         Mockito.when(mockS3client.doesBucketExistV2(fakeBucketNameNotWritable)).thenReturn(true);
 
         Mockito.when(mockS3client.doesBucketExistV2(exceptionThrowerBucket))
