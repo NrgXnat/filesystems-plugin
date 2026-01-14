@@ -74,6 +74,7 @@ public class AwsS3ConfigEntityServiceTest {
 
     private MockAwsS3 mockAwsS3;
     private MockedStatic<AutoXnatProjectdata> mockedAutoXnatProjectdata;
+    private MockedStatic<XnatProjectdata> mockedXnatProjectdata;
 
     // Mockito 5 construction mocks for AWS SDK builders
     private org.mockito.MockedConstruction<com.amazonaws.services.s3.AmazonS3Client> mockedS3Client;
@@ -103,12 +104,20 @@ public class AwsS3ConfigEntityServiceTest {
         }
         mockedAutoXnatProjectdata.when(() -> AutoXnatProjectdata.getAllXnatProjectdatas(any(UserI.class), anyBoolean()))
                 .thenReturn(projectList);
+
+        // Also mock XnatProjectdata.getAllXnatProjectdatas() which is called by updatePermittedProjects
+        mockedXnatProjectdata = Mockito.mockStatic(XnatProjectdata.class);
+        mockedXnatProjectdata.when(() -> XnatProjectdata.getAllXnatProjectdatas(any(UserI.class), anyBoolean()))
+                .thenReturn(projectList);
     }
 
     @After
     public void teardown() {
         if (mockedAutoXnatProjectdata != null) {
             mockedAutoXnatProjectdata.close();
+        }
+        if (mockedXnatProjectdata != null) {
+            mockedXnatProjectdata.close();
         }
 
         // Close Mockito 5 construction mocks

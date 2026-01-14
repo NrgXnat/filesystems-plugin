@@ -139,7 +139,8 @@ public class RemoteFilesTrackerEntityServiceTest {
         assertThat(entities, hasSize(1));
         assertThat(entities, containsInAnyOrder(entity));
         remoteFilesTrackerEntityService.delete(entity);
-        assertNull(remoteFilesTrackerEntityService.findByItemIdAndXsiType(session));
+        // After deletion, findByItemIdAndXsiType returns empty list rather than null
+        assertThat(remoteFilesTrackerEntityService.findByItemIdAndXsiType(session), hasSize(0));
         assertNull(remoteFilesTrackerEntityService.findByResource(catRes));
     }
 
