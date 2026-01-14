@@ -14,7 +14,9 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
 import org.nrg.framework.node.XnatNode;
 import org.nrg.xdat.om.XnatMrsessiondata;
 import org.nrg.xdat.om.XnatResourcecatalog;
@@ -76,34 +78,47 @@ public class RemoteFilesPluginConcurrencyTest {
     private int threads = 10;
     private List<XnatNode> nodes = new ArrayList<>();
 
+    // Mockito 5 static mocks
+    private MockedStatic<EventUtils> mockedEventUtils;
+    private MockedStatic<PersistentWorkflowUtils> mockedPersistentWorkflowUtils;
+    private MockedStatic<UriParserUtils> mockedUriParserUtils;
+
     @Before
     public void setup() throws Exception {
+        // Initialize @Mock fields
+        MockitoAnnotations.openMocks(this);
+
         Files.createDirectories(Paths.get(writableArchivePath));
 
         mockUser = Mockito.mock(UserI.class);
         Mockito.when(mockUser.getLogin()).thenReturn("mockUser");
 
-        // No workflows
-        Mockito.mockStatic(EventUtils.class);
-        Mockito.doReturn("").when(EventUtils.class, "getAddModifyAction",
-                anyString(), anyBoolean());
-        Mockito.doReturn(Mockito.mock(EventDetails.class)).when(EventUtils.class, "newEventInstance",
-                any(EventUtils.CATEGORY.class), any(EventUtils.TYPE.class), anyString(), anyString(), anyString());
+        // No workflows - Mock static methods with Mockito 5
+        mockedEventUtils = Mockito.mockStatic(EventUtils.class);
+        mockedEventUtils.when(() -> EventUtils.getAddModifyAction(anyString(), anyBoolean()))
+                .thenReturn("");
+        mockedEventUtils.when(() -> EventUtils.newEventInstance(
+                any(EventUtils.CATEGORY.class), any(EventUtils.TYPE.class),
+                anyString(), anyString(), anyString()))
+                .thenReturn(Mockito.mock(EventDetails.class));
 
         PersistentWorkflowI mockWrk = Mockito.mock(PersistentWorkflowI.class);
         EventMetaI mockEventMeta = Mockito.mock(EventMetaI.class);
         Mockito.when(mockWrk.buildEvent()).thenReturn(mockEventMeta);
         Mockito.when(mockEventMeta.getEventId()).thenReturn(1);
-        Mockito.mockStatic(PersistentWorkflowUtils.class);
-        Mockito.doReturn(Collections.emptyList()).when(PersistentWorkflowUtils.class, "getOpenWorkflows",
-                eq(mockUser), anyString());
-        Mockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "getOrCreateWorkflowData",
-                anyInt(), eq(mockUser), any(XFTItem.class), any(EventDetails.class));
-        Mockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "buildOpenWorkflow",
-                eq(mockUser), any(XFTItem.class), any(EventDetails.class));
+        mockedPersistentWorkflowUtils = Mockito.mockStatic(PersistentWorkflowUtils.class);
+        mockedPersistentWorkflowUtils.when(() -> PersistentWorkflowUtils.getOpenWorkflows(
+                eq(mockUser), anyString()))
+                .thenReturn(Collections.emptyList());
+        mockedPersistentWorkflowUtils.when(() -> PersistentWorkflowUtils.getOrCreateWorkflowData(
+                anyInt(), eq(mockUser), any(XFTItem.class), any(EventDetails.class)))
+                .thenReturn(mockWrk);
+        mockedPersistentWorkflowUtils.when(() -> PersistentWorkflowUtils.buildOpenWorkflow(
+                eq(mockUser), any(XFTItem.class), any(EventDetails.class)))
+                .thenReturn(mockWrk);
 
-        // URI parsing
-        Mockito.mockStatic(UriParserUtils.class);
+        // URI parsing - Mock static method with Mockito 5
+        mockedUriParserUtils = Mockito.mockStatic(UriParserUtils.class);
 
         //Mock objects
         session = Mockito.mock(XnatMrsessiondata.class);
@@ -145,6 +160,17 @@ public class RemoteFilesPluginConcurrencyTest {
     @After
     public void cleanup() throws IOException {
         FileUtils.deleteDirectory(new File(writableArchivePath));
+
+        // Close all static mocks to prevent memory leaks
+        if (mockedEventUtils != null) {
+            mockedEventUtils.close();
+        }
+        if (mockedPersistentWorkflowUtils != null) {
+            mockedPersistentWorkflowUtils.close();
+        }
+        if (mockedUriParserUtils != null) {
+            mockedUriParserUtils.close();
+        }
     }
 
     @Test

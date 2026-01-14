@@ -183,6 +183,7 @@ public class TestConfig {
     public SiteConfigPreferences siteConfigPreferences() {
         SiteConfigPreferences prefs = Mockito.mock(SiteConfigPreferences.class);
         Mockito.when(prefs.getArchivePath()).thenReturn(testArchiveDir);
+        Mockito.when(prefs.getCachePath()).thenReturn("/tmp/xnat-cache");
         return prefs;
     }
 

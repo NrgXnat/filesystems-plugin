@@ -33,6 +33,7 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockedStatic;
+import org.mockito.MockitoAnnotations;
 import org.nrg.xdat.om.XnatProjectdata;
 import org.nrg.xdat.om.base.auto.AutoXnatProjectdata;
 import org.nrg.xft.security.UserI;
@@ -74,12 +75,23 @@ public class AwsS3ConfigEntityServiceTest {
     private MockAwsS3 mockAwsS3;
     private MockedStatic<AutoXnatProjectdata> mockedAutoXnatProjectdata;
 
+    // Mockito 5 construction mocks for AWS SDK builders
+    private org.mockito.MockedConstruction<com.amazonaws.services.s3.AmazonS3Client> mockedS3Client;
+    private org.mockito.MockedConstruction<com.amazonaws.services.s3.transfer.TransferManager> mockedTransferManager;
+
     @Rule
     public ExpectedException exceptionRule = ExpectedException.none();
 
     @Before
     public void setup() throws Exception {
+        // Initialize @Mock fields
+        MockitoAnnotations.openMocks(this);
+
         mockAwsS3 = new MockAwsS3(); //need to reset each time
+
+        // Mock AWS SDK builders to return our mock clients
+        mockedS3Client = MockAwsS3.mockS3ClientConstruction(mockAwsS3);
+        mockedTransferManager = MockAwsS3.mockTransferManagerConstruction(mockAwsS3);
 
         // Mock static method with Mockito 5
         mockedAutoXnatProjectdata = Mockito.mockStatic(AutoXnatProjectdata.class);
@@ -97,6 +109,14 @@ public class AwsS3ConfigEntityServiceTest {
     public void teardown() {
         if (mockedAutoXnatProjectdata != null) {
             mockedAutoXnatProjectdata.close();
+        }
+
+        // Close Mockito 5 construction mocks
+        if (mockedS3Client != null) {
+            mockedS3Client.close();
+        }
+        if (mockedTransferManager != null) {
+            mockedTransferManager.close();
         }
     }
 

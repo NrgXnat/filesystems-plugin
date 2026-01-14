@@ -8,11 +8,14 @@ import com.radiologics.filesystems.config.RestApiTestConfig;
 import com.radiologics.filesystems.model.entity.RemoteFilesItemState;
 import com.radiologics.filesystems.services.RemoteCatalogService;
 import com.radiologics.filesystems.services.RemoteFilesPluginService;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
 import org.nrg.action.ClientException;
 import org.nrg.action.ServerException;
 import org.nrg.xdat.model.XnatAbstractresourceI;
@@ -83,8 +86,14 @@ public class RemoteFilesApiTest {
     @Autowired private RemoteFilesPluginService mockRemoteFilesService;
     @Autowired private RemoteCatalogService mockRemoteCatalogService;
 
+    // Mockito 5 static mock
+    private MockedStatic<AutoXnatAbstractresource> mockedAutoXnatAbstractresource;
+
     @Before
     public void setup() throws Exception {
+        // Initialize @Mock fields
+        MockitoAnnotations.openMocks(this);
+
         mockMvc = MockMvcBuilders.webAppContextSetup(wac).apply(springSecurity()).build();
 
         // Mock the user
@@ -108,11 +117,22 @@ public class RemoteFilesApiTest {
         when(archiveItemURI.getResources(true)).thenReturn(resList);
         when(mockResourceData.getXnatUri()).thenReturn(archiveItemURI);
 
-        Mockito.mockStatic(AutoXnatAbstractresource.class);
-        Mockito.when(AutoXnatAbstractresource.getXnatAbstractresourcesByXnatAbstractresourceId(eq(resId),
-                any(UserI.class), eq(false))).thenReturn(mockRes);
-        Mockito.when(AutoXnatAbstractresource.getXnatAbstractresourcesByXnatAbstractresourceId(eq(resIdAlt),
-                any(UserI.class), eq(false))).thenReturn(nonCatalogResource);
+        // Mock static method with Mockito 5
+        mockedAutoXnatAbstractresource = Mockito.mockStatic(AutoXnatAbstractresource.class);
+        mockedAutoXnatAbstractresource.when(() -> AutoXnatAbstractresource.getXnatAbstractresourcesByXnatAbstractresourceId(
+                eq(resId), any(UserI.class), eq(false)))
+                .thenReturn(mockRes);
+        mockedAutoXnatAbstractresource.when(() -> AutoXnatAbstractresource.getXnatAbstractresourcesByXnatAbstractresourceId(
+                eq(resIdAlt), any(UserI.class), eq(false)))
+                .thenReturn(nonCatalogResource);
+    }
+
+    @After
+    public void cleanup() {
+        // Close static mock to prevent memory leaks
+        if (mockedAutoXnatAbstractresource != null) {
+            mockedAutoXnatAbstractresource.close();
+        }
     }
 
     @Test

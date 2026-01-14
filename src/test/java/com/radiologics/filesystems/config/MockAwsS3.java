@@ -17,6 +17,7 @@ import org.apache.http.client.methods.HttpGet;
 import org.mockito.AdditionalMatchers;
 import org.mockito.ArgumentMatcher;
 import org.mockito.ArgumentMatchers;
+import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 import reactor.jarjar.jsr166e.extra.AtomicDouble;
@@ -135,6 +136,8 @@ public class MockAwsS3 {
         Mockito.when(mockMd.getContentMD5()).thenReturn(awsGoodUrlFileMd5);
         Mockito.when(mockMd.getLastModified()).thenReturn(new Date());
         Mockito.when(mockS3client.getObjectMetadata(any(GetObjectMetadataRequest.class))).thenReturn(mockMd);
+        // Support two-argument overload
+        Mockito.when(mockS3client.getObjectMetadata(anyString(), anyString())).thenReturn(mockMd);
 
         // get input stream methods
         // Note: With Mockito 5, we don't mock constructors. Instead, we match any GetObjectRequest.
@@ -146,6 +149,8 @@ public class MockAwsS3 {
                 )
         ).when(s3obj).getObjectContent();
         Mockito.when(mockS3client.getObject(any(GetObjectRequest.class))).thenReturn(s3obj);
+        // Support two-argument overload
+        Mockito.when(mockS3client.getObject(anyString(), anyString())).thenReturn(s3obj);
 
         // list
         ListObjectsV2Result mockResult = Mockito.mock(ListObjectsV2Result.class);
@@ -184,6 +189,84 @@ public class MockAwsS3 {
 
         // Note: With Mockito 5, we don't mock static builder methods or constructors.
         // The test configuration should inject pre-built AmazonS3 and TransferManager mocks directly.
+    }
+
+    /**
+     * Create a MockedConstruction that intercepts AmazonS3Client constructor calls
+     * and returns the pre-configured mock from this MockAwsS3 instance.
+     * This allows AmazonS3ClientBuilder.build() to return our mock instead of creating a real client.
+     *
+     * Usage:
+     * <pre>
+     * MockedConstruction&lt;AmazonS3Client&gt; mockedS3Client = MockAwsS3.mockS3ClientConstruction(mockAwsS3);
+     * try {
+     *     // Any code that calls AmazonS3ClientBuilder.build() will get mockAwsS3.mockS3client
+     * } finally {
+     *     mockedS3Client.close();
+     * }
+     * </pre>
+     */
+    public static MockedConstruction<com.amazonaws.services.s3.AmazonS3Client> mockS3ClientConstruction(MockAwsS3 mockAwsS3) {
+        return Mockito.mockConstruction(com.amazonaws.services.s3.AmazonS3Client.class,
+            (mock, context) -> {
+                // Configure the mock to behave like mockAwsS3.mockS3client
+                // We need to copy all the stubbing from mockS3client to this new mock
+                Mockito.when(mock.doesBucketExistV2(anyString())).thenAnswer(inv ->
+                    mockAwsS3.mockS3client.doesBucketExistV2(inv.getArgument(0, String.class)));
+                Mockito.when(mock.getBucketVersioningConfiguration(anyString())).thenAnswer(inv ->
+                    mockAwsS3.mockS3client.getBucketVersioningConfiguration(inv.getArgument(0, String.class)));
+                Mockito.when(mock.doesObjectExist(anyString(), anyString())).thenAnswer(inv ->
+                    mockAwsS3.mockS3client.doesObjectExist(inv.getArgument(0, String.class), inv.getArgument(1, String.class)));
+                Mockito.when(mock.putObject(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class))).thenAnswer(inv ->
+                    mockAwsS3.mockS3client.putObject(inv.getArgument(0, String.class), inv.getArgument(1, String.class),
+                        inv.getArgument(2, InputStream.class), inv.getArgument(3, ObjectMetadata.class)));
+                Mockito.doAnswer(inv -> {
+                    mockAwsS3.mockS3client.deleteObject(inv.getArgument(0, String.class), inv.getArgument(1, String.class));
+                    return null;
+                }).when(mock).deleteObject(anyString(), anyString());
+
+                // getObjectMetadata - both overloads
+                Mockito.when(mock.getObjectMetadata(any(GetObjectMetadataRequest.class))).thenAnswer(inv ->
+                    mockAwsS3.mockS3client.getObjectMetadata(inv.getArgument(0, GetObjectMetadataRequest.class)));
+                Mockito.when(mock.getObjectMetadata(anyString(), anyString())).thenAnswer(inv ->
+                    mockAwsS3.mockS3client.getObjectMetadata(inv.getArgument(0, String.class), inv.getArgument(1, String.class)));
+
+                // getObject - both overloads
+                Mockito.when(mock.getObject(any(GetObjectRequest.class))).thenAnswer(inv ->
+                    mockAwsS3.mockS3client.getObject(inv.getArgument(0, GetObjectRequest.class)));
+                Mockito.when(mock.getObject(anyString(), anyString())).thenAnswer(inv ->
+                    mockAwsS3.mockS3client.getObject(inv.getArgument(0, String.class), inv.getArgument(1, String.class)));
+                Mockito.when(mock.listObjectsV2(any(ListObjectsV2Request.class))).thenAnswer(inv ->
+                    mockAwsS3.mockS3client.listObjectsV2(inv.getArgument(0, ListObjectsV2Request.class)));
+            });
+    }
+
+    /**
+     * Create a MockedConstruction that intercepts TransferManager constructor calls
+     * and returns the pre-configured mock from this MockAwsS3 instance.
+     * This allows TransferManagerBuilder.build() to return our mock instead of creating a real transfer manager.
+     *
+     * Usage:
+     * <pre>
+     * MockedConstruction&lt;TransferManager&gt; mockedTransferManager = MockAwsS3.mockTransferManagerConstruction(mockAwsS3);
+     * try {
+     *     // Any code that calls TransferManagerBuilder.build() will get mockAwsS3.mockS3transfer
+     * } finally {
+     *     mockedTransferManager.close();
+     * }
+     * </pre>
+     */
+    public static MockedConstruction<TransferManager> mockTransferManagerConstruction(MockAwsS3 mockAwsS3) {
+        return Mockito.mockConstruction(TransferManager.class,
+            (mock, context) -> {
+                // Configure the mock to behave like mockAwsS3.mockS3transfer
+                Mockito.when(mock.upload(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class))).thenAnswer(inv ->
+                    mockAwsS3.mockS3transfer.upload(inv.getArgument(0, String.class), inv.getArgument(1, String.class),
+                        inv.getArgument(2, InputStream.class), inv.getArgument(3, ObjectMetadata.class)));
+                Mockito.when(mock.download(anyString(), anyString(), any(File.class))).thenAnswer(inv ->
+                    mockAwsS3.mockS3transfer.download(inv.getArgument(0, String.class), inv.getArgument(1, String.class),
+                        inv.getArgument(2, File.class)));
+            });
     }
 
     public static class ObjectMetadataForFileWithContentMatcher implements ArgumentMatcher<ObjectMetadata> {

@@ -17,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
 import org.nrg.framework.exceptions.NotFoundException;
 import org.nrg.framework.orm.DatabaseHelper;
 import org.nrg.framework.task.services.XnatTaskService;
@@ -89,6 +90,9 @@ public class LocalArchiveCleanupTest {
 
     @Before
     public void setup() throws Exception {
+        // Initialize @Mock fields
+        MockitoAnnotations.openMocks(this);
+
         Mockito.when(mockUser.getLogin()).thenReturn("mockUser");
         Mockito.when(primaryAdminUserProvider.get()).thenReturn(mockUser);
 
