@@ -237,17 +237,27 @@ public class MockAwsS3 {
                     return null;
                 }).when(mock).deleteObject(anyString(), anyString());
 
-                // getObjectMetadata - both overloads
+                // getObjectMetadata - delegation first, then exception cases override
                 Mockito.when(mock.getObjectMetadata(any(GetObjectMetadataRequest.class))).thenAnswer(inv ->
                     mockAwsS3.mockS3client.getObjectMetadata(inv.getArgument(0, GetObjectMetadataRequest.class)));
                 Mockito.when(mock.getObjectMetadata(anyString(), anyString())).thenAnswer(inv ->
                     mockAwsS3.mockS3client.getObjectMetadata(inv.getArgument(0, String.class), inv.getArgument(1, String.class)));
+                // Exception cases last to override
+                Mockito.when(mock.getObjectMetadata(argThat(new GetObjectMetadataRequestWithKeyMatcher(exceptionThrower))))
+                        .thenThrow(new AmazonServiceException(exceptionMsg));
+                Mockito.when(mock.getObjectMetadata(anyString(), eq(exceptionThrower)))
+                        .thenThrow(new AmazonServiceException(exceptionMsg));
 
-                // getObject - both overloads
+                // getObject - delegation first, then exception cases override
                 Mockito.when(mock.getObject(any(GetObjectRequest.class))).thenAnswer(inv ->
                     mockAwsS3.mockS3client.getObject(inv.getArgument(0, GetObjectRequest.class)));
                 Mockito.when(mock.getObject(anyString(), anyString())).thenAnswer(inv ->
                     mockAwsS3.mockS3client.getObject(inv.getArgument(0, String.class), inv.getArgument(1, String.class)));
+                // Exception cases last to override
+                Mockito.when(mock.getObject(argThat(new GetObjectRequestWithKeyMatcher(exceptionThrower))))
+                        .thenThrow(new AmazonServiceException(exceptionMsg));
+                Mockito.when(mock.getObject(anyString(), eq(exceptionThrower)))
+                        .thenThrow(new AmazonServiceException(exceptionMsg));
                 Mockito.when(mock.listObjectsV2(any(ListObjectsV2Request.class))).thenAnswer(inv ->
                     mockAwsS3.mockS3client.listObjectsV2(inv.getArgument(0, ListObjectsV2Request.class)));
             });
@@ -272,9 +282,17 @@ public class MockAwsS3 {
         return Mockito.mockConstruction(TransferManager.class,
             (mock, context) -> {
                 // Configure the mock to behave like mockAwsS3.mockS3transfer
+                // Exception cases first for upload
+                Mockito.when(mock.upload(anyString(), eq(exceptionThrower), any(InputStream.class),
+                        argThat(new ObjectMetadataForFileWithContentMatcher())))
+                        .thenThrow(new SdkClientException(exceptionMsg));
                 Mockito.when(mock.upload(anyString(), anyString(), any(InputStream.class), any(ObjectMetadata.class))).thenAnswer(inv ->
                     mockAwsS3.mockS3transfer.upload(inv.getArgument(0, String.class), inv.getArgument(1, String.class),
                         inv.getArgument(2, InputStream.class), inv.getArgument(3, ObjectMetadata.class)));
+
+                // Exception cases first for download
+                Mockito.when(mock.download(anyString(), eq(exceptionThrower), any(File.class)))
+                        .thenThrow(new AmazonServiceException(exceptionMsg));
                 Mockito.when(mock.download(anyString(), anyString(), any(File.class))).thenAnswer(inv ->
                     mockAwsS3.mockS3transfer.download(inv.getArgument(0, String.class), inv.getArgument(1, String.class),
                         inv.getArgument(2, File.class)));
@@ -288,6 +306,32 @@ public class MockAwsS3 {
                 return false;
             }
             return argument.getContentLength() > 0L;
+        }
+    }
+
+    public static class GetObjectRequestWithKeyMatcher implements ArgumentMatcher<GetObjectRequest> {
+        private final String expectedKey;
+
+        public GetObjectRequestWithKeyMatcher(String key) {
+            this.expectedKey = key;
+        }
+
+        @Override
+        public boolean matches(GetObjectRequest argument) {
+            return argument != null && expectedKey.equals(argument.getKey());
+        }
+    }
+
+    public static class GetObjectMetadataRequestWithKeyMatcher implements ArgumentMatcher<GetObjectMetadataRequest> {
+        private final String expectedKey;
+
+        public GetObjectMetadataRequestWithKeyMatcher(String key) {
+            this.expectedKey = key;
+        }
+
+        @Override
+        public boolean matches(GetObjectMetadataRequest argument) {
+            return argument != null && expectedKey.equals(argument.getKey());
         }
     }
 }
