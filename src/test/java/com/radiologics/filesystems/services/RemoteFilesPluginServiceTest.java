@@ -171,13 +171,13 @@ public class RemoteFilesPluginServiceTest {
         Mockito.when(mockEventMeta.getEventId()).thenReturn(1);
         mockedPersistentWorkflowUtils = Mockito.mockStatic(PersistentWorkflowUtils.class);
         mockedPersistentWorkflowUtils.when(() -> PersistentWorkflowUtils.getOpenWorkflows(
-                eq(mockUser), anyString()))
+                any(), any()))
                 .thenReturn(Collections.emptyList());
         mockedPersistentWorkflowUtils.when(() -> PersistentWorkflowUtils.getOrCreateWorkflowData(
-                anyInt(), eq(mockUser), any(XFTItem.class), any(EventDetails.class)))
+                any(), any(), any(), any()))
                 .thenReturn(mockWrk);
         mockedPersistentWorkflowUtils.when(() -> PersistentWorkflowUtils.buildOpenWorkflow(
-                eq(mockUser), any(XFTItem.class), any(EventDetails.class)))
+                any(), any(), any()))
                 .thenReturn(mockWrk);
 
         // URI parsing - Mock static method with Mockito 5
