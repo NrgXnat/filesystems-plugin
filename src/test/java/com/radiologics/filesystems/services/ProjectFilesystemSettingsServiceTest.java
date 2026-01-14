@@ -33,6 +33,7 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.nrg.framework.exceptions.NotFoundException;
 import org.nrg.xdat.om.XnatProjectdata;
@@ -83,6 +84,9 @@ public class ProjectFilesystemSettingsServiceTest {
 
     private UserI mockUser;
 
+    // Mockito 5 static mock
+    private MockedStatic<AutoXnatProjectdata> mockedAutoXnatProjectdata;
+
     @Rule
     public ExpectedException exceptionRule = ExpectedException.none();
 
@@ -113,15 +117,17 @@ public class ProjectFilesystemSettingsServiceTest {
         invalidArchiverConfig = awsS3ConfigEntityService.createOrUpdateFromPojo(awsAltArchiverConfig,
                 true, awsS3FilesystemService);
 
-        Mockito.mockStatic(AutoXnatProjectdata.class);
+        // Mock static method with Mockito 5
+        mockedAutoXnatProjectdata = Mockito.mockStatic(AutoXnatProjectdata.class);
         ArrayList<XnatProjectdata> projectList = new ArrayList<>();
         for (String project : allProjectArrayList) {
             XnatProjectdata xnatProjectdata = Mockito.mock(XnatProjectdata.class);
             Mockito.when(xnatProjectdata.getId()).thenReturn(project);
             projectList.add(xnatProjectdata);
         }
-        Mockito.doReturn(projectList).when(AutoXnatProjectdata.class,
-                "getAllXnatProjectdatas", any(UserI.class), anyBoolean());
+        mockedAutoXnatProjectdata.when(() -> AutoXnatProjectdata.getAllXnatProjectdatas(
+                any(UserI.class), anyBoolean()))
+                .thenReturn(projectList);
 
         projectFilesystemSettingsService = new ProjectFilesystemSettingsServiceImpl(projectFilesystemSettingsEntityService,
                 Arrays.asList(awsS3FilesystemService, defaultFilesystemService),
@@ -130,6 +136,9 @@ public class ProjectFilesystemSettingsServiceTest {
 
     @After
     public void cleanup() throws IOException {
+        if (mockedAutoXnatProjectdata != null) {
+            mockedAutoXnatProjectdata.close();
+        }
         FileUtils.deleteDirectory(new File(writableArchivePath));
     }
 

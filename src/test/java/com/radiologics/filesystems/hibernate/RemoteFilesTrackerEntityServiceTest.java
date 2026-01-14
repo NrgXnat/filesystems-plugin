@@ -9,11 +9,13 @@ import com.radiologics.filesystems.model.entity.RemoteFilesTrackerEntity;
 import com.radiologics.filesystems.services.RemoteFilesTrackerEntityService;
 import com.radiologics.filesystems.services.RemoteFilesTrackerEntityServiceImpl;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.nrg.xdat.om.XnatMrscandata;
 import org.nrg.xdat.om.XnatMrsessiondata;
@@ -58,6 +60,9 @@ public class RemoteFilesTrackerEntityServiceTest {
     private XnatResourcecatalog catRes;
     private XnatResourcecatalog scanCatRes;
 
+    // Mockito 5 static mock
+    private MockedStatic<AutoXnatAbstractresource> mockedAutoXnatAbstractresource;
+
     @Rule
     public ExpectedException exceptionRule = ExpectedException.none();
 
@@ -96,18 +101,30 @@ public class RemoteFilesTrackerEntityServiceTest {
                 scanCatRes.getLabel(), "scan_" + scan.getId() + "_catalog.xml").toString();
         Mockito.when(scanCatRes.getUri()).thenReturn(scanCatResUri);
 
-        // Mock resource check
+        // Mock resource check with Mockito 5
         Mockito.when(primaryAdminUserProvider.get()).thenReturn(mockUser);
-        PowerMockito.spy(AutoXnatAbstractresource.class);
-        Mockito.doReturn(null).when(AutoXnatAbstractresource.class,
-                "getXnatAbstractresourcesByXnatAbstractresourceId", anyInt(), eq(mockUser), eq(false));
-        Mockito.doReturn(catRes).when(AutoXnatAbstractresource.class,
-                "getXnatAbstractresourcesByXnatAbstractresourceId", catResId, mockUser, false);
-        Mockito.doReturn(scanCatRes).when(AutoXnatAbstractresource.class,
-                "getXnatAbstractresourcesByXnatAbstractresourceId", scanCatResId, mockUser, false);
+
+        // Mock static method with Mockito 5
+        mockedAutoXnatAbstractresource = Mockito.mockStatic(AutoXnatAbstractresource.class);
+        mockedAutoXnatAbstractresource.when(() -> AutoXnatAbstractresource.getXnatAbstractresourcesByXnatAbstractresourceId(
+                anyInt(), eq(mockUser), eq(false)))
+                .thenReturn(null);
+        mockedAutoXnatAbstractresource.when(() -> AutoXnatAbstractresource.getXnatAbstractresourcesByXnatAbstractresourceId(
+                catResId, mockUser, false))
+                .thenReturn(catRes);
+        mockedAutoXnatAbstractresource.when(() -> AutoXnatAbstractresource.getXnatAbstractresourcesByXnatAbstractresourceId(
+                scanCatResId, mockUser, false))
+                .thenReturn(scanCatRes);
 
         // Need nodeinfo for association
         xnatNodeInfoService.create(xnatNodeInfo);
+    }
+
+    @After
+    public void teardown() {
+        if (mockedAutoXnatAbstractresource != null) {
+            mockedAutoXnatAbstractresource.close();
+        }
     }
 
     @Test

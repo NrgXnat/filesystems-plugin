@@ -9,10 +9,13 @@ import com.radiologics.filesystems.config.TestConfig;
 import com.radiologics.filesystems.model.auto.ProjectFilesystemSettings;
 import com.radiologics.filesystems.services.*;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.nrg.framework.exceptions.NotFoundException;
 import org.nrg.framework.orm.DatabaseHelper;
@@ -47,6 +50,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 
 @Slf4j
@@ -77,6 +81,11 @@ public class LocalArchiveCleanupTest {
     private List<FilesystemService> filesystemServices;
     private int cleanupInterval = 1;
 
+    // Mockito 5 static and construction mocks
+    private MockedConstruction<DatabaseHelper> mockedDatabaseHelper;
+    private MockedStatic<UriParserUtils> mockedUriParserUtils;
+    private MockedStatic<BaseXnatProjectdata> mockedBaseXnatProjectdata;
+    private MockedStatic<AutoXnatProjectdata> mockedAutoXnatProjectdata;
 
     @Before
     public void setup() throws Exception {
@@ -87,15 +96,18 @@ public class LocalArchiveCleanupTest {
         Mockito.when(mockPermissionsService.can(any(UserI.class), any(ItemI.class), anyString()))
                 .thenReturn(Boolean.TRUE);
 
-        DatabaseHelper databaseHelper = Mockito.mock(DatabaseHelper.class);
-        Mockito.whenNew(DatabaseHelper.class).withParameterTypes(JdbcTemplate.class)
-                .withArguments(any(JdbcTemplate.class)).thenReturn(databaseHelper);
+        // Mock DatabaseHelper construction with Mockito 5
+        DatabaseHelper mockDatabaseHelper = Mockito.mock(DatabaseHelper.class);
+        mockedDatabaseHelper = Mockito.mockConstruction(DatabaseHelper.class,
+                (mock, context) -> {
+                    // No-op: constructor mock just returns the default mock
+                });
 
-        // XNAT objects
-        Mockito.mockStatic(UriParserUtils.class);
-        Mockito.when(UriParserUtils.getArchiveUri(project)).thenReturn(uri);
-        Mockito.when(UriParserUtils.getArchiveUri(subject)).thenReturn(uri);
-        Mockito.when(UriParserUtils.getArchiveUri(session)).thenReturn(uri);
+        // Mock static methods with Mockito 5
+        mockedUriParserUtils = Mockito.mockStatic(UriParserUtils.class);
+        mockedUriParserUtils.when(() -> UriParserUtils.getArchiveUri(project)).thenReturn(uri);
+        mockedUriParserUtils.when(() -> UriParserUtils.getArchiveUri(subject)).thenReturn(uri);
+        mockedUriParserUtils.when(() -> UriParserUtils.getArchiveUri(session)).thenReturn(uri);
         Mockito.when(mockCatalogService.getResourceDataFromUri(uri)).thenReturn(mockResourceData);
         Mockito.when(mockResourceData.getXnatUri()).thenReturn(itemURIObj);
         Mockito.when(itemURIObj.getResources(true)).thenReturn(resources);
@@ -107,9 +119,12 @@ public class LocalArchiveCleanupTest {
         ArrayList<XnatExperimentdata> exp = new ArrayList<>();
         exp.add(session);
         Mockito.when(project.getExperiments()).thenReturn(exp);
-        Mockito.mockStatic(BaseXnatProjectdata.class);
-        Mockito.doReturn(project).when(BaseXnatProjectdata.class, "getProjectByIDorAlias",
-                eq(supportedProject), any(UserI.class), anyBoolean());
+
+        // Mock BaseXnatProjectdata static method with Mockito 5
+        mockedBaseXnatProjectdata = Mockito.mockStatic(BaseXnatProjectdata.class);
+        mockedBaseXnatProjectdata.when(() -> BaseXnatProjectdata.getProjectByIDorAlias(
+                eq(supportedProject), any(UserI.class), anyBoolean()))
+                .thenReturn(project);
 
         filesystemServices = Arrays.asList(mockAwsS3FilesystemService, mockDefaultFilesystemService);
 
@@ -120,11 +135,30 @@ public class LocalArchiveCleanupTest {
         Mockito.when(mockProjectFilesystemSettingsService.getSettingsForProject(supportedProject))
                 .thenReturn(mockSettings);
 
-        Mockito.mockStatic(AutoXnatProjectdata.class);
+        // Mock AutoXnatProjectdata static method with Mockito 5
+        mockedAutoXnatProjectdata = Mockito.mockStatic(AutoXnatProjectdata.class);
         ArrayList<XnatProjectdata> projectList = new ArrayList<>();
         projectList.add(project);
-        Mockito.doReturn(projectList).when(AutoXnatProjectdata.class,
-                "getAllXnatProjectdatas", any(UserI.class), anyBoolean());
+        mockedAutoXnatProjectdata.when(() -> AutoXnatProjectdata.getAllXnatProjectdatas(
+                any(UserI.class), anyBoolean()))
+                .thenReturn(projectList);
+    }
+
+    @After
+    public void teardown() {
+        // Close all static and construction mocks
+        if (mockedDatabaseHelper != null) {
+            mockedDatabaseHelper.close();
+        }
+        if (mockedUriParserUtils != null) {
+            mockedUriParserUtils.close();
+        }
+        if (mockedBaseXnatProjectdata != null) {
+            mockedBaseXnatProjectdata.close();
+        }
+        if (mockedAutoXnatProjectdata != null) {
+            mockedAutoXnatProjectdata.close();
+        }
     }
 
     @Test
