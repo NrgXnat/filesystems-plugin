@@ -199,6 +199,12 @@ public class RemoteFilesPluginServiceTest {
                 .toString();
         Mockito.when(session.getExpectedCurrentDirectory()).thenReturn(new File(mockSesArchivePath));
         Mockito.when(session.getArchiveRootPath()).thenReturn(testArchiveDir);
+
+        // Create necessary directories for ThreadAndProcessFileLock
+        Files.createDirectories(Paths.get(mockSesArchivePath));
+        Files.createDirectories(Paths.get(mockSesArchivePathExpected));
+        Files.createDirectories(Paths.get(mockSesArchivePathScansRemote));
+        Files.createDirectories(Paths.get(siteConfigPreferences.getCachePath()));
         //Mockito.when(session.getScans_scan()).thenReturn(Collections.singletonList(scan));
         Mockito.when(session.getProject()).thenReturn(supportedProject);
 
