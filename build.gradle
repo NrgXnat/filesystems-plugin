@@ -40,7 +40,7 @@ compileJava {
 }
 
 jacoco {
-    toolVersion = "0.7.9"
+    toolVersion = "0.8.11"  // Java 21 compatible version
 }
 
 jacocoTestReport {
