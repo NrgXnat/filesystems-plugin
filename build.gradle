@@ -187,6 +187,7 @@ lombok {
 task fatJar(type: Jar) {
     zip64 true
     archiveClassifier.set("fat")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from {
         configurations.compileAndInclude.collect { it.isDirectory() ? it : zipTree(it) }
     } {
