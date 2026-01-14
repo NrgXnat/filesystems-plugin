@@ -58,7 +58,7 @@ import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 
 import static com.radiologics.filesystems.config.SharedStrings.testArchiveDir;
-import static org.mockito.Matchers.any;
+import static org.mockito.ArgumentMatchers.any;
 
 @Configuration
 @EnableTransactionManagement(proxyTargetClass = true)
