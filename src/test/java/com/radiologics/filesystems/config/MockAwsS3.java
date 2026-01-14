@@ -135,6 +135,12 @@ public class MockAwsS3 {
         Mockito.when(mockMd.getContentLength()).thenReturn(awsGoodUrlFileSize);
         Mockito.when(mockMd.getContentMD5()).thenReturn(awsGoodUrlFileMd5);
         Mockito.when(mockMd.getLastModified()).thenReturn(new Date());
+
+        // Exception cases first (more specific matchers)
+        Mockito.when(mockS3client.getObjectMetadata(anyString(), eq(exceptionThrower)))
+                .thenThrow(new AmazonServiceException(exceptionMsg));
+
+        // Default cases
         Mockito.when(mockS3client.getObjectMetadata(any(GetObjectMetadataRequest.class))).thenReturn(mockMd);
         // Support two-argument overload
         Mockito.when(mockS3client.getObjectMetadata(anyString(), anyString())).thenReturn(mockMd);
@@ -148,6 +154,12 @@ public class MockAwsS3 {
                         new HttpGet()
                 )
         ).when(s3obj).getObjectContent();
+
+        // Exception cases first (more specific matchers)
+        Mockito.when(mockS3client.getObject(anyString(), eq(exceptionThrower)))
+                .thenThrow(new AmazonServiceException(exceptionMsg));
+
+        // Default cases
         Mockito.when(mockS3client.getObject(any(GetObjectRequest.class))).thenReturn(s3obj);
         // Support two-argument overload
         Mockito.when(mockS3client.getObject(anyString(), anyString())).thenReturn(s3obj);
