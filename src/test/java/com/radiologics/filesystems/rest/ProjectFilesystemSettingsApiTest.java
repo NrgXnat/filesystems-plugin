@@ -73,7 +73,7 @@ public class ProjectFilesystemSettingsApiTest {
     private UserI nonAdmin;
     private MockMvc mockMvc;
 
-    private final MediaType JSON = MediaType.APPLICATION_JSON_UTF8;
+    private final MediaType JSON = MediaType.APPLICATION_JSON;
 
     // Make some ProjectFilesystemSettings POJOS for serialization (can't easily serialize mocks)
     private final ProjectFilesystemSettings pojo1 = new ProjectFilesystemSettings(1, "project", 7, true, null);

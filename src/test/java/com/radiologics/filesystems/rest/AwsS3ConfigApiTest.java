@@ -61,7 +61,7 @@ public class AwsS3ConfigApiTest {
     private UserI nonAdmin;
     private MockMvc mockMvc;
 
-    private final MediaType JSON = MediaType.APPLICATION_JSON_UTF8;
+    private final MediaType JSON = MediaType.APPLICATION_JSON;
 
     @Autowired private WebApplicationContext wac;
     @Autowired private ObjectMapper mapper;

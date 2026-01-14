@@ -67,7 +67,7 @@ public class RemoteFilesApiTest {
     private UserI nonAdmin;
     private MockMvc mockMvc;
 
-    private final MediaType JSON = MediaType.APPLICATION_JSON_UTF8;
+    private final MediaType JSON = MediaType.APPLICATION_JSON;
 
     @Mock private ArchivableItem mockItem;
     @Mock private XnatResourcecatalog mockRes;
