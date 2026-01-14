@@ -91,9 +91,10 @@ public class SharedStrings {
     public static final String badUrl = "http://thisIsNotReal.html";
     public static final String readonlyBucketUrl = "s3://" + fakeBucketNameReadonly + "/" + missingFile;
 
-    //TODO this file is specific to the version of java we're using (Java/1.8.0_192), we need to come up with some other static file for testing
+    // Note: This test uses httpbin.org/user-agent which returns Java version string.
+    // Updated for Java 21 (Java/21.0.7) - response size is 34 bytes
     public static final String defaultFsGoodUrl = "http://httpbin.org/user-agent";
     public static final String defaultFsGoodUrlArchiveName = "621ad63a8e2c6e8c98584284265858e3_user-agent";
-    public static final long defaultFsGoodUrlResponseSize = 37;
+    public static final long defaultFsGoodUrlResponseSize = 34;
     public static final File defaultFsGetFile = Paths.get(testArchiveDir, "defaultFsGetFile.txt").toFile();
 }
