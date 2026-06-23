@@ -1,6 +1,6 @@
 buildscript {
     ext {
-        vXnat = '1.10.0-RC-SNAPSHOT'
+        vXnat = '1.10.1-SNAPSHOT'
     }
 }
 
@@ -17,7 +17,7 @@ plugins {
 }
 
 def groupName = 'com.radiologics'
-def pluginVersion = '3.2.0-java21-RC-SNAPSHOT'
+def pluginVersion = '3.3.0-SNAPSHOT'
 
 group groupName
 version pluginVersion
@@ -83,7 +83,8 @@ configurations {
     implementation.extendsFrom(compileAndInclude)
 }
 
-def vSpringSecurity = dependencyManagement.importedProperties['spring-security.version']
+// BOM 1.10.1-SNAPSHOT dropped importedProperties — hardcode versions
+def vSpringSecurity = "5.7.13"
 def vH2 = "1.4.197"
 
 dependencies {
@@ -91,9 +92,6 @@ dependencies {
     implementation enforcedPlatform("org.nrg:parent:${vXnat}")
 
     implementation("org.nrg.xnat:web") {
-        exclude group: '*'
-    }
-    implementation("org.nrg.xnat:xnat-data-models") {
         exclude group: '*'
     }
     implementation("org.nrg.xdat:core") {
@@ -180,8 +178,8 @@ dependencies {
 }
 
 lombok {
-    version = dependencyManagement.importedProperties["lombok.version"] as String
-    sha256 = dependencyManagement.importedProperties["lombok.checksum"] as String
+    version = "1.18.34"
+    sha256 = "1ea5ad6c6afcff902d75072b2aaa6695585aebee9f12127e15c0036ba95d2918"
 }
 
 task fatJar(type: Jar) {
