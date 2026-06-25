@@ -17,10 +17,9 @@ plugins {
 }
 
 def groupName = 'com.radiologics'
-def pluginVersion = '3.3.0-SNAPSHOT'
 
 group groupName
-version pluginVersion
+version "3.3.0-SNAPSHOT"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
