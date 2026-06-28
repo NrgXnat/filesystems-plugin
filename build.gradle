@@ -13,7 +13,6 @@ plugins {
     id 'maven-publish'
     id 'io.spring.dependency-management' version '1.1.7'
     id 'io.franzbecker.gradle-lombok' version '5.0.0'
-    id 'net.linguica.maven-settings' version '0.5'
 }
 
 def groupName = 'com.radiologics'
