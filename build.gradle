@@ -173,6 +173,7 @@ dependencies {
     testImplementation group: 'org.apache.axis', name: 'axis', version: '1.4'
     testImplementation "com.fasterxml.jackson.datatype:jackson-datatype-guava"
     testImplementation "xalan:xalan:2.7.2"  // monorepo libs.versions.toml 同款，BOM 没 expose 给 consumer
+    testImplementation "com.github.tomakehurst:wiremock"  // BOM 给 3.0.1，stub httpbin.org
 }
 
 lombok {

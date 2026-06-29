@@ -3,15 +3,27 @@
 
 package com.radiologics.filesystems.config;
 
+import com.github.tomakehurst.wiremock.WireMockServer;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.core.io.FileSystemResource;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.any;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
 
 public class SharedStrings {
     public static String testArchiveDir;
@@ -91,10 +103,47 @@ public class SharedStrings {
     public static final String badUrl = "http://thisIsNotReal.html";
     public static final String readonlyBucketUrl = "s3://" + fakeBucketNameReadonly + "/" + missingFile;
 
-    // Note: This test uses httpbin.org/user-agent which returns Java version string.
-    // Updated for Java 21 (Java/21.0.7) - response size is 34 bytes
-    public static final String defaultFsGoodUrl = "http://httpbin.org/user-agent";
-    public static final String defaultFsGoodUrlArchiveName = "621ad63a8e2c6e8c98584284265858e3_user-agent";
-    public static final long defaultFsGoodUrlResponseSize = 34;
+    // Previously hit httpbin.org/user-agent — that response varies with the JVM's
+    // default User-Agent (which embeds the Java version), so the byte-exact size
+    // assertions broke whenever the runner's Temurin patch version drifted from
+    // the developer's local JDK. We now serve the same canned bytes from a local
+    // WireMock instance — completely network-independent. See defaultFsGetFile.txt
+    // for the response body. Size + archive filename derive from the bytes / URL,
+    // so updating the canned file does not require touching constants.
     public static final File defaultFsGetFile = Paths.get(testArchiveDir, "defaultFsGetFile.txt").toFile();
+    private static final WireMockServer HTTPBIN_STUB;
+    public static final String defaultFsGoodUrl;
+    public static final String defaultFsGoodUrlArchiveName;
+    public static final long defaultFsGoodUrlResponseSize;
+
+    static {
+        final byte[] cannedResponse;
+        try {
+            cannedResponse = Files.readAllBytes(defaultFsGetFile.toPath());
+        } catch (IOException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+        defaultFsGoodUrlResponseSize = cannedResponse.length;
+
+        HTTPBIN_STUB = new WireMockServer(options().dynamicPort());
+        HTTPBIN_STUB.start();
+        // any() matches both GET (used by pullFile / getInputStream / getMetadata body fetch)
+        // and HEAD (used by service.getUrlHeaders to populate Content-Length).
+        HTTPBIN_STUB.stubFor(any(urlPathEqualTo("/user-agent")).willReturn(
+                aResponse().withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withHeader("Content-Length", String.valueOf(cannedResponse.length))
+                        .withBody(cannedResponse)));
+        Runtime.getRuntime().addShutdownHook(new Thread(HTTPBIN_STUB::stop));
+
+        defaultFsGoodUrl = "http://localhost:" + HTTPBIN_STUB.port() + "/user-agent";
+
+        try {
+            byte[] md5 = MessageDigest.getInstance("MD5")
+                    .digest(defaultFsGoodUrl.getBytes(StandardCharsets.UTF_8));
+            defaultFsGoodUrlArchiveName = HexFormat.of().formatHex(md5) + "_user-agent";
+        } catch (NoSuchAlgorithmException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
 }
