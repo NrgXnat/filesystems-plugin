@@ -172,7 +172,7 @@ dependencies {
     testImplementation "org.awaitility:awaitility:3.1.6"
     testImplementation group: 'org.apache.axis', name: 'axis', version: '1.4'
     testImplementation "com.fasterxml.jackson.datatype:jackson-datatype-guava"
-    testImplementation "xalan:xalan"
+    testImplementation "xalan:xalan:2.7.2"  // monorepo libs.versions.toml 同款，BOM 没 expose 给 consumer
 }
 
 lombok {
