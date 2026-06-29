@@ -30,9 +30,33 @@ public class SharedStrings {
 
     static {
         try {
-            testArchiveDir = Paths.get(ClassLoader.getSystemResource("filesystemServicesTest").toURI())
-                            .toString().replace("%20", " ");
-        } catch (URISyntaxException e) {
+            // Copy the source resources/filesystemServicesTest/ to a writable temp dir.
+            // We need to rewrite DATA_catalog.xml so its URL points at our WireMock
+            // stub instead of httpbin.org, and we don't want to mutate the source tree.
+            java.nio.file.Path srcDir = Paths.get(ClassLoader.getSystemResource("filesystemServicesTest").toURI());
+            java.nio.file.Path tmpDir = java.nio.file.Files.createTempDirectory("filesystemServicesTest-");
+            try (java.util.stream.Stream<java.nio.file.Path> walk = java.nio.file.Files.walk(srcDir)) {
+                walk.forEach(src -> {
+                    try {
+                        java.nio.file.Path dst = tmpDir.resolve(srcDir.relativize(src));
+                        if (java.nio.file.Files.isDirectory(src)) {
+                            java.nio.file.Files.createDirectories(dst);
+                        } else {
+                            java.nio.file.Files.copy(src, dst,
+                                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+            }
+            testArchiveDir = tmpDir.toString();
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                try (java.util.stream.Stream<java.nio.file.Path> walk = java.nio.file.Files.walk(tmpDir)) {
+                    walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+                } catch (IOException ignored) {}
+            }));
+        } catch (URISyntaxException | IOException e) {
             testArchiveDir = "/tmp/archive";
         }
     }
@@ -143,6 +167,18 @@ public class SharedStrings {
                     .digest(defaultFsGoodUrl.getBytes(StandardCharsets.UTF_8));
             defaultFsGoodUrlArchiveName = HexFormat.of().formatHex(md5) + "_user-agent";
         } catch (NoSuchAlgorithmException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+
+        // DATA_catalog.xml is read by testInitiatePullResourceFilesAndPollPullResource;
+        // it embeds the URL + its MD5 + the cachePath. Patch the copy in testArchiveDir.
+        java.nio.file.Path catalog = Paths.get(testArchiveDir, "DATA_catalog.xml");
+        try {
+            String xml = new String(Files.readAllBytes(catalog), StandardCharsets.UTF_8);
+            xml = xml.replace("http://httpbin.org/user-agent", defaultFsGoodUrl)
+                    .replace("621ad63a8e2c6e8c98584284265858e3_user-agent", defaultFsGoodUrlArchiveName);
+            Files.write(catalog, xml.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
             throw new ExceptionInInitializerError(e);
         }
     }
