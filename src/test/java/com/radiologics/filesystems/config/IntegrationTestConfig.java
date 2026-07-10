@@ -11,13 +11,13 @@ import org.mockito.Mockito;
 import org.nrg.framework.node.XnatNode;
 import org.nrg.xdat.preferences.SiteConfigPreferences;
 import org.nrg.xdat.services.cache.UserDataCache;
+import org.nrg.framework.jcache.JCacheHelper;
 import org.nrg.xnat.node.services.XnatNodeInfoService;
 import org.nrg.xnat.services.XnatAppInfo;
 import org.nrg.xnat.services.archive.CatalogService;
 import org.nrg.xnat.services.archive.RemoteFilesService;
 import org.nrg.xnat.services.archive.impl.legacy.DefaultCatalogService;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -41,8 +41,14 @@ public class IntegrationTestConfig {
 
     @Bean
     public CatalogService catalogService(final RemoteFilesService remoteFilesService) {
-        DefaultCatalogService cs = Mockito.spy(new DefaultCatalogService(Mockito.mock(SiteConfigPreferences.class),
-                Mockito.mock(NamedParameterJdbcTemplate.class), Mockito.mock(CacheManager.class), Mockito.mock(UserDataCache.class)));
+        // Explicitly specify types to avoid Java 21 type inference issues
+        // Note: XNAT 1.10.0 changed DefaultCatalogService constructor to use JCacheHelper instead of CacheManager
+        SiteConfigPreferences mockPrefs = Mockito.mock(SiteConfigPreferences.class);
+        NamedParameterJdbcTemplate mockTemplate = Mockito.mock(NamedParameterJdbcTemplate.class);
+        JCacheHelper mockJCacheHelper = Mockito.mock(JCacheHelper.class);
+        UserDataCache mockUserDataCache = Mockito.mock(UserDataCache.class);
+
+        DefaultCatalogService cs = Mockito.spy(new DefaultCatalogService(mockPrefs, mockTemplate, mockJCacheHelper, mockUserDataCache));
         cs.setRemoteFilesService(remoteFilesService);
         return cs;
     }

@@ -38,8 +38,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.orm.hibernate4.HibernateTransactionManager;
-import org.springframework.orm.hibernate4.LocalSessionFactoryBean;
+import org.springframework.orm.hibernate5.HibernateTransactionManager;
+import org.springframework.orm.hibernate5.LocalSessionFactoryBean;
 import org.springframework.scheduling.concurrent.ThreadPoolExecutorFactoryBean;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.ResourceTransactionManager;
@@ -58,7 +58,7 @@ import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 
 import static com.radiologics.filesystems.config.SharedStrings.testArchiveDir;
-import static org.mockito.Matchers.any;
+import static org.mockito.ArgumentMatchers.any;
 
 @Configuration
 @EnableTransactionManagement(proxyTargetClass = true)
@@ -159,7 +159,9 @@ public class TestConfig {
 
     @Bean
     public XnatNode xnatNode() {
-        return Mockito.mock(XnatNode.class);
+        XnatNode xnatNode = Mockito.mock(XnatNode.class);
+        Mockito.when(xnatNode.getNodeId()).thenReturn("1");
+        return xnatNode;
     }
 
     /*
@@ -183,6 +185,7 @@ public class TestConfig {
     public SiteConfigPreferences siteConfigPreferences() {
         SiteConfigPreferences prefs = Mockito.mock(SiteConfigPreferences.class);
         Mockito.when(prefs.getArchivePath()).thenReturn(testArchiveDir);
+        Mockito.when(prefs.getCachePath()).thenReturn("/tmp/xnat-cache");
         return prefs;
     }
 

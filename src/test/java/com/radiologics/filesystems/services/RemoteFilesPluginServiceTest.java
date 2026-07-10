@@ -27,6 +27,7 @@ import org.apache.commons.lang3.mutable.MutableBoolean;
 import org.junit.*;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.nrg.action.ClientException;
 import org.nrg.action.ServerException;
@@ -57,12 +58,6 @@ import org.nrg.xnat.node.entities.XnatNodeInfo;
 import org.nrg.xnat.node.services.impl.HibernateXnatNodeInfoService;
 import org.nrg.xnat.services.archive.CatalogService;
 import org.nrg.xnat.utils.CatalogUtils;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-import org.powermock.modules.junit4.PowerMockRunnerDelegate;
-import org.powermock.reflect.Whitebox;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.test.annotation.DirtiesContext;
@@ -73,6 +68,7 @@ import javax.annotation.Nullable;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
@@ -86,17 +82,11 @@ import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 import static org.hamcrest.Matchers.*;
 import static org.hamcrest.io.FileMatchers.*;
 import static org.junit.Assert.*;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 
 @Slf4j
-@RunWith(PowerMockRunner.class)
-@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
-@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
-@PrepareForTest({AmazonS3ClientBuilder.class, TransferManagerBuilder.class, BasicAWSCredentials.class,
-        AWSStaticCredentialsProvider.class, AwsS3FilesystemService.class, TransferProgress.class, MockAwsS3.class,
-        AwsS3Config.class, PersistentWorkflowUtils.class, UriParserUtils.class, AutoXnatAbstractresource.class,
-        RemoteFilesTrackerEntityServiceImpl.class, CatalogUtils.class, EventUtils.class})
+@RunWith(SpringJUnit4ClassRunner.class)
 @ContextConfiguration(classes = {IntegrationTestConfig.class, TestConfig.class})
 public class RemoteFilesPluginServiceTest {
     @Autowired private HibernateXnatNodeInfoService xnatNodeInfoService;
@@ -134,6 +124,18 @@ public class RemoteFilesPluginServiceTest {
     private ExptScanURI mockScanUriObj;
     private String localResLabel = "LOCAL";
 
+    private MockAwsS3 mockAwsS3;
+
+    // Mockito 5 static mocks
+    private MockedStatic<EventUtils> mockedEventUtils;
+    private MockedStatic<PersistentWorkflowUtils> mockedPersistentWorkflowUtils;
+    private MockedStatic<UriParserUtils> mockedUriParserUtils;
+    private MockedStatic<AutoXnatAbstractresource> mockedAutoXnatAbstractresource;
+
+    // Mockito 5 construction mocks for AWS SDK builders
+    private org.mockito.MockedConstruction<com.amazonaws.services.s3.AmazonS3Client> mockedS3Client;
+    private org.mockito.MockedConstruction<com.amazonaws.services.s3.transfer.TransferManager> mockedTransferManager;
+
     @Rule
     public ExpectedException exceptionRule = ExpectedException.none();
 
@@ -154,27 +156,32 @@ public class RemoteFilesPluginServiceTest {
         Mockito.when(mockPermissionsService.can(any(UserI.class), any(ItemI.class), anyString()))
                 .thenReturn(Boolean.TRUE);
 
-        // No workflows
-        PowerMockito.mockStatic(EventUtils.class);
-        PowerMockito.doReturn("").when(EventUtils.class, "getAddModifyAction",
-                anyString(), anyBoolean());
-        PowerMockito.doReturn(Mockito.mock(EventDetails.class)).when(EventUtils.class, "newEventInstance",
-                any(EventUtils.CATEGORY.class), any(EventUtils.TYPE.class), anyString(), anyString(), anyString());
+        // No workflows - Mock static methods with Mockito 5
+        mockedEventUtils = Mockito.mockStatic(EventUtils.class);
+        mockedEventUtils.when(() -> EventUtils.getAddModifyAction(anyString(), anyBoolean()))
+                .thenReturn("");
+        mockedEventUtils.when(() -> EventUtils.newEventInstance(
+                any(EventUtils.CATEGORY.class), any(EventUtils.TYPE.class),
+                anyString(), anyString(), anyString()))
+                .thenReturn(Mockito.mock(EventDetails.class));
 
         PersistentWorkflowI mockWrk = Mockito.mock(PersistentWorkflowI.class);
         EventMetaI mockEventMeta = Mockito.mock(EventMetaI.class);
         Mockito.when(mockWrk.buildEvent()).thenReturn(mockEventMeta);
         Mockito.when(mockEventMeta.getEventId()).thenReturn(1);
-        PowerMockito.mockStatic(PersistentWorkflowUtils.class);
-        PowerMockito.doReturn(Collections.emptyList()).when(PersistentWorkflowUtils.class, "getOpenWorkflows",
-                eq(mockUser), anyString());
-        PowerMockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "getOrCreateWorkflowData",
-                anyInt(), eq(mockUser), any(XFTItem.class), any(EventDetails.class));
-        PowerMockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "buildOpenWorkflow",
-                eq(mockUser), any(XFTItem.class), any(EventDetails.class));
+        mockedPersistentWorkflowUtils = Mockito.mockStatic(PersistentWorkflowUtils.class);
+        mockedPersistentWorkflowUtils.when(() -> PersistentWorkflowUtils.getOpenWorkflows(
+                any(), any()))
+                .thenReturn(Collections.emptyList());
+        mockedPersistentWorkflowUtils.when(() -> PersistentWorkflowUtils.getOrCreateWorkflowData(
+                any(), any(), any(), any()))
+                .thenReturn(mockWrk);
+        mockedPersistentWorkflowUtils.when(() -> PersistentWorkflowUtils.buildOpenWorkflow(
+                any(), any(), any()))
+                .thenReturn(mockWrk);
 
-        // URI parsing
-        PowerMockito.mockStatic(UriParserUtils.class);
+        // URI parsing - Mock static method with Mockito 5
+        mockedUriParserUtils = Mockito.mockStatic(UriParserUtils.class);
 
         //Mock objects
         scan = Mockito.mock(XnatMrscandata.class);
@@ -192,6 +199,12 @@ public class RemoteFilesPluginServiceTest {
                 .toString();
         Mockito.when(session.getExpectedCurrentDirectory()).thenReturn(new File(mockSesArchivePath));
         Mockito.when(session.getArchiveRootPath()).thenReturn(testArchiveDir);
+
+        // Create necessary directories for ThreadAndProcessFileLock
+        Files.createDirectories(Paths.get(mockSesArchivePath));
+        Files.createDirectories(Paths.get(mockSesArchivePathExpected));
+        Files.createDirectories(Paths.get(mockSesArchivePathScansRemote));
+        Files.createDirectories(Paths.get(siteConfigPreferences.getCachePath()));
         //Mockito.when(session.getScans_scan()).thenReturn(Collections.singletonList(scan));
         Mockito.when(session.getProject()).thenReturn(supportedProject);
 
@@ -228,9 +241,9 @@ public class RemoteFilesPluginServiceTest {
         mockSesUri = "/archive/experiments/" + session.getId();
         mockCatResUri = mockSesUri + "/resources/" + catRes.getLabel();
         mockScanUri = mockSesUri + "/scans/" + scan.getId();
-        PowerMockito.when(UriParserUtils.parseURI(mockSesUri)).thenReturn(mockSesUriObj);
-        PowerMockito.when(UriParserUtils.parseURI(mockCatResUri)).thenReturn(mockCatResUriObj);
-        PowerMockito.when(UriParserUtils.parseURI(mockScanUri)).thenReturn(mockScanUriObj);
+        mockedUriParserUtils.when(() -> UriParserUtils.parseURI(mockSesUri)).thenReturn(mockSesUriObj);
+        mockedUriParserUtils.when(() -> UriParserUtils.parseURI(mockCatResUri)).thenReturn(mockCatResUriObj);
+        mockedUriParserUtils.when(() -> UriParserUtils.parseURI(mockScanUri)).thenReturn(mockScanUriObj);
         Mockito.when(mockSesUriObj.getSecurityItem()).thenReturn(session);
         Mockito.when(mockCatResUriObj.getSecurityItem()).thenReturn(session);
         Mockito.when(mockScanUriObj.getSecurityItem()).thenReturn(session);
@@ -240,27 +253,36 @@ public class RemoteFilesPluginServiceTest {
         Mockito.when(mockCatResUriObj.getXnatResource()).thenReturn(catRes);
         Mockito.when(mockScanUriObj.getResources(anyBoolean())).thenReturn(Collections.singletonList(scanCatRes));
 
-        // Mock resource check
+        // Mock resource check - Mock static method with Mockito 5
         Mockito.when(primaryAdminUserProvider.get()).thenReturn(mockUser);
-        PowerMockito.spy(AutoXnatAbstractresource.class);
-        PowerMockito.doReturn(null).when(AutoXnatAbstractresource.class,
-                "getXnatAbstractresourcesByXnatAbstractresourceId", anyInt(), eq(mockUser), eq(false));
-        PowerMockito.doReturn(catRes).when(AutoXnatAbstractresource.class,
-                "getXnatAbstractresourcesByXnatAbstractresourceId", catResId, mockUser, false);
-        PowerMockito.doReturn(scanCatRes).when(AutoXnatAbstractresource.class,
-                "getXnatAbstractresourcesByXnatAbstractresourceId", scanCatResId, mockUser, false);
+        mockedAutoXnatAbstractresource = Mockito.mockStatic(AutoXnatAbstractresource.class);
+        mockedAutoXnatAbstractresource.when(() -> AutoXnatAbstractresource.getXnatAbstractresourcesByXnatAbstractresourceId(
+                anyInt(), eq(mockUser), eq(false)))
+                .thenReturn(null);
+        mockedAutoXnatAbstractresource.when(() -> AutoXnatAbstractresource.getXnatAbstractresourcesByXnatAbstractresourceId(
+                catResId, mockUser, false))
+                .thenReturn(catRes);
+        mockedAutoXnatAbstractresource.when(() -> AutoXnatAbstractresource.getXnatAbstractresourcesByXnatAbstractresourceId(
+                scanCatResId, mockUser, false))
+                .thenReturn(scanCatRes);
 
-        //Mock catalog
-        // Stub getChecksumConfiguration check
-        PowerMockito.spy(CatalogUtils.class);
-        PowerMockito.spy(CatalogUtils.CatalogData.class);
-        //doReturn(false).when(CatalogUtils.class, "getChecksumConfiguration"); // doesn't work, not sure why
-        Whitebox.setInternalState(CatalogUtils.class, "_checksumConfig", new AtomicBoolean(false));
-        PowerMockito.stub(PowerMockito.method(CatalogUtils.CatalogData.class, "queryResourceProject"))
-                .toReturn(supportedProject);
+        //Mock catalog - Mock static methods and use reflection instead of Whitebox
+        // Set _checksumConfig field using Java reflection instead of Whitebox
+        Field checksumConfigField = CatalogUtils.class.getDeclaredField("_checksumConfig");
+        checksumConfigField.setAccessible(true);
+        checksumConfigField.set(null, new AtomicBoolean(false));
+
+        // Note: queryResourceProject() is a private method in CatalogUtils.CatalogData
+        // We cannot directly mock private methods with Mockito 5
+        // The method will use its real implementation during tests
 
         // Project settings (need the POJO with id set)
-        new MockAwsS3();
+        mockAwsS3 = new MockAwsS3();
+
+        // Mock AWS SDK builders to return our mock clients
+        mockedS3Client = MockAwsS3.mockS3ClientConstruction(mockAwsS3);
+        mockedTransferManager = MockAwsS3.mockTransferManagerConstruction(mockAwsS3);
+
         AwsS3Config archiverConfig = awsS3ConfigEntityService.createOrUpdateFromPojo(awsArchiverConfig,
                 true, awsS3FilesystemService);
         awsS3ConfigEntityService.createOrUpdateFromPojo(awsAltConfig, true, awsS3FilesystemService);
@@ -270,6 +292,28 @@ public class RemoteFilesPluginServiceTest {
     @After
     public void cleanup() throws IOException {
         FileUtils.deleteDirectory(new File(writableArchivePath));
+
+        // Close all static mocks to prevent memory leaks
+        if (mockedEventUtils != null) {
+            mockedEventUtils.close();
+        }
+        if (mockedPersistentWorkflowUtils != null) {
+            mockedPersistentWorkflowUtils.close();
+        }
+        if (mockedUriParserUtils != null) {
+            mockedUriParserUtils.close();
+        }
+        if (mockedAutoXnatAbstractresource != null) {
+            mockedAutoXnatAbstractresource.close();
+        }
+
+        // Close Mockito 5 construction mocks
+        if (mockedS3Client != null) {
+            mockedS3Client.close();
+        }
+        if (mockedTransferManager != null) {
+            mockedTransferManager.close();
+        }
     }
 
     @Test

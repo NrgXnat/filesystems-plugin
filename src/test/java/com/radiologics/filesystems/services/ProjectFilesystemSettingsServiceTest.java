@@ -33,7 +33,9 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
 import org.nrg.framework.exceptions.NotFoundException;
 import org.nrg.xdat.om.XnatProjectdata;
 import org.nrg.xdat.om.base.auto.AutoXnatProjectdata;
@@ -41,11 +43,6 @@ import org.nrg.xdat.security.services.PermissionsServiceI;
 import org.nrg.xft.ItemI;
 import org.nrg.xft.security.UserI;
 import org.nrg.xnat.exceptions.UnsupportedRemoteFilesOperationException;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-import org.powermock.modules.junit4.PowerMockRunnerDelegate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
@@ -61,17 +58,11 @@ import static org.hamcrest.CoreMatchers.hasItem;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.Assert.assertThat;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 
 @Slf4j
-@RunWith(PowerMockRunner.class)
-@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
-@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
-@PrepareForTest({AutoXnatProjectdata.class, AmazonS3ClientBuilder.class, TransferManagerBuilder.class,
-        BasicAWSCredentials.class, AWSStaticCredentialsProvider.class, AwsS3FilesystemService.class,
-        TransferProgress.class, MockAwsS3.class, AwsS3Config.class
-})
+@RunWith(SpringJUnit4ClassRunner.class)
 @ContextConfiguration(classes = {TestConfig.class, AwsS3MockTestConfig.class})
 public class ProjectFilesystemSettingsServiceTest {
     @Autowired private PermissionsServiceI mockPermissionsService;
@@ -94,11 +85,23 @@ public class ProjectFilesystemSettingsServiceTest {
 
     private UserI mockUser;
 
+    private MockAwsS3 mockAwsS3;
+
+    // Mockito 5 static mock
+    private MockedStatic<AutoXnatProjectdata> mockedAutoXnatProjectdata;
+
+    // Mockito 5 construction mocks for AWS SDK builders
+    private org.mockito.MockedConstruction<com.amazonaws.services.s3.AmazonS3Client> mockedS3Client;
+    private org.mockito.MockedConstruction<com.amazonaws.services.s3.transfer.TransferManager> mockedTransferManager;
+
     @Rule
     public ExpectedException exceptionRule = ExpectedException.none();
 
     @Before
     public void setup() throws Exception {
+        // Initialize @Mock fields
+        MockitoAnnotations.openMocks(this);
+
         Files.createDirectories(Paths.get(writableArchivePath));
 
         mockUser = Mockito.mock(UserI.class);
@@ -109,7 +112,12 @@ public class ProjectFilesystemSettingsServiceTest {
                 .thenReturn(Boolean.TRUE);
 
         // Project settings (need the POJO with id set)
-        new MockAwsS3();
+        mockAwsS3 = new MockAwsS3();
+
+        // Mock AWS SDK builders to return our mock clients
+        mockedS3Client = MockAwsS3.mockS3ClientConstruction(mockAwsS3);
+        mockedTransferManager = MockAwsS3.mockTransferManagerConstruction(mockAwsS3);
+
         archiverConfig = awsS3ConfigEntityService.createOrUpdateFromPojo(awsArchiverConfig,
                 true, awsS3FilesystemService);
         nonArchiverConfig = awsS3ConfigEntityService.createOrUpdateFromPojo(awsReadonlyConfig,
@@ -124,15 +132,17 @@ public class ProjectFilesystemSettingsServiceTest {
         invalidArchiverConfig = awsS3ConfigEntityService.createOrUpdateFromPojo(awsAltArchiverConfig,
                 true, awsS3FilesystemService);
 
-        PowerMockito.mockStatic(AutoXnatProjectdata.class);
+        // Mock static method with Mockito 5
+        mockedAutoXnatProjectdata = Mockito.mockStatic(AutoXnatProjectdata.class);
         ArrayList<XnatProjectdata> projectList = new ArrayList<>();
         for (String project : allProjectArrayList) {
             XnatProjectdata xnatProjectdata = Mockito.mock(XnatProjectdata.class);
             Mockito.when(xnatProjectdata.getId()).thenReturn(project);
             projectList.add(xnatProjectdata);
         }
-        PowerMockito.doReturn(projectList).when(AutoXnatProjectdata.class,
-                "getAllXnatProjectdatas", any(UserI.class), anyBoolean());
+        mockedAutoXnatProjectdata.when(() -> AutoXnatProjectdata.getAllXnatProjectdatas(
+                any(UserI.class), anyBoolean()))
+                .thenReturn(projectList);
 
         projectFilesystemSettingsService = new ProjectFilesystemSettingsServiceImpl(projectFilesystemSettingsEntityService,
                 Arrays.asList(awsS3FilesystemService, defaultFilesystemService),
@@ -141,6 +151,18 @@ public class ProjectFilesystemSettingsServiceTest {
 
     @After
     public void cleanup() throws IOException {
+        if (mockedAutoXnatProjectdata != null) {
+            mockedAutoXnatProjectdata.close();
+        }
+
+        // Close Mockito 5 construction mocks
+        if (mockedS3Client != null) {
+            mockedS3Client.close();
+        }
+        if (mockedTransferManager != null) {
+            mockedTransferManager.close();
+        }
+
         FileUtils.deleteDirectory(new File(writableArchivePath));
     }
 

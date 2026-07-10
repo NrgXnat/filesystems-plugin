@@ -1,1 +1,16 @@
+pluginManagement {
+    repositories {
+        mavenLocal()
+        maven {
+            url "https://nrgxnat.jfrog.io/nrgxnat/libs-release"
+            name "XNAT Release Repository"
+        }
+        maven {
+            url "https://nrgxnat.jfrog.io/nrgxnat/libs-snapshot"
+            name "XNAT Snapshot Repository"
+        }
+        gradlePluginPortal()
+    }
+}
+
 rootProject.name = 'filesystems_plugin'

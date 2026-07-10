@@ -14,7 +14,9 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
 import org.nrg.framework.node.XnatNode;
 import org.nrg.xdat.om.XnatMrsessiondata;
 import org.nrg.xdat.om.XnatResourcecatalog;
@@ -32,11 +34,6 @@ import org.nrg.xnat.node.entities.XnatNodeInfo;
 import org.nrg.xnat.node.services.XnatNodeInfoService;
 import org.nrg.xnat.node.services.impl.HibernateXnatNodeInfoService;
 import org.nrg.xnat.utils.CatalogUtils;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-import org.powermock.modules.junit4.PowerMockRunnerDelegate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.concurrent.ThreadPoolExecutorFactoryBean;
 import org.springframework.test.annotation.DirtiesContext;
@@ -57,15 +54,11 @@ import static com.radiologics.filesystems.config.SharedStrings.*;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
-import static org.mockito.Matchers.*;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.eq;
 
 
-@RunWith(PowerMockRunner.class)
-@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
-@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*", "org.xml.sax.*"})
-@PrepareForTest({PersistentWorkflowUtils.class, UriParserUtils.class, AutoXnatAbstractresource.class,
-        RemoteFilesTrackerEntityServiceImpl.class, CatalogUtils.class, EventUtils.class})
+@RunWith(SpringJUnit4ClassRunner.class)
 @Slf4j
 @ContextConfiguration(classes = {TestConfig.class})
 public class RemoteFilesPluginConcurrencyTest {
@@ -85,34 +78,47 @@ public class RemoteFilesPluginConcurrencyTest {
     private int threads = 10;
     private List<XnatNode> nodes = new ArrayList<>();
 
+    // Mockito 5 static mocks
+    private MockedStatic<EventUtils> mockedEventUtils;
+    private MockedStatic<PersistentWorkflowUtils> mockedPersistentWorkflowUtils;
+    private MockedStatic<UriParserUtils> mockedUriParserUtils;
+
     @Before
     public void setup() throws Exception {
+        // Initialize @Mock fields
+        MockitoAnnotations.openMocks(this);
+
         Files.createDirectories(Paths.get(writableArchivePath));
 
         mockUser = Mockito.mock(UserI.class);
         Mockito.when(mockUser.getLogin()).thenReturn("mockUser");
 
-        // No workflows
-        PowerMockito.mockStatic(EventUtils.class);
-        PowerMockito.doReturn("").when(EventUtils.class, "getAddModifyAction",
-                anyString(), anyBoolean());
-        PowerMockito.doReturn(Mockito.mock(EventDetails.class)).when(EventUtils.class, "newEventInstance",
-                any(EventUtils.CATEGORY.class), any(EventUtils.TYPE.class), anyString(), anyString(), anyString());
+        // No workflows - Mock static methods with Mockito 5
+        mockedEventUtils = Mockito.mockStatic(EventUtils.class);
+        mockedEventUtils.when(() -> EventUtils.getAddModifyAction(anyString(), anyBoolean()))
+                .thenReturn("");
+        mockedEventUtils.when(() -> EventUtils.newEventInstance(
+                any(EventUtils.CATEGORY.class), any(EventUtils.TYPE.class),
+                anyString(), anyString(), anyString()))
+                .thenReturn(Mockito.mock(EventDetails.class));
 
         PersistentWorkflowI mockWrk = Mockito.mock(PersistentWorkflowI.class);
         EventMetaI mockEventMeta = Mockito.mock(EventMetaI.class);
         Mockito.when(mockWrk.buildEvent()).thenReturn(mockEventMeta);
         Mockito.when(mockEventMeta.getEventId()).thenReturn(1);
-        PowerMockito.mockStatic(PersistentWorkflowUtils.class);
-        PowerMockito.doReturn(Collections.emptyList()).when(PersistentWorkflowUtils.class, "getOpenWorkflows",
-                eq(mockUser), anyString());
-        PowerMockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "getOrCreateWorkflowData",
-                anyInt(), eq(mockUser), any(XFTItem.class), any(EventDetails.class));
-        PowerMockito.doReturn(mockWrk).when(PersistentWorkflowUtils.class, "buildOpenWorkflow",
-                eq(mockUser), any(XFTItem.class), any(EventDetails.class));
+        mockedPersistentWorkflowUtils = Mockito.mockStatic(PersistentWorkflowUtils.class);
+        mockedPersistentWorkflowUtils.when(() -> PersistentWorkflowUtils.getOpenWorkflows(
+                eq(mockUser), anyString()))
+                .thenReturn(Collections.emptyList());
+        mockedPersistentWorkflowUtils.when(() -> PersistentWorkflowUtils.getOrCreateWorkflowData(
+                anyInt(), eq(mockUser), any(XFTItem.class), any(EventDetails.class)))
+                .thenReturn(mockWrk);
+        mockedPersistentWorkflowUtils.when(() -> PersistentWorkflowUtils.buildOpenWorkflow(
+                eq(mockUser), any(XFTItem.class), any(EventDetails.class)))
+                .thenReturn(mockWrk);
 
-        // URI parsing
-        PowerMockito.mockStatic(UriParserUtils.class);
+        // URI parsing - Mock static method with Mockito 5
+        mockedUriParserUtils = Mockito.mockStatic(UriParserUtils.class);
 
         //Mock objects
         session = Mockito.mock(XnatMrsessiondata.class);
@@ -154,6 +160,17 @@ public class RemoteFilesPluginConcurrencyTest {
     @After
     public void cleanup() throws IOException {
         FileUtils.deleteDirectory(new File(writableArchivePath));
+
+        // Close all static mocks to prevent memory leaks
+        if (mockedEventUtils != null) {
+            mockedEventUtils.close();
+        }
+        if (mockedPersistentWorkflowUtils != null) {
+            mockedPersistentWorkflowUtils.close();
+        }
+        if (mockedUriParserUtils != null) {
+            mockedUriParserUtils.close();
+        }
     }
 
     @Test

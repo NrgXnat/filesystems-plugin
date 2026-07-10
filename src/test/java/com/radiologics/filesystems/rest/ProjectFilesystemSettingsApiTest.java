@@ -35,11 +35,6 @@ import org.nrg.xnat.archive.ResourceData;
 import org.nrg.xnat.helpers.uri.URIManager;
 import org.nrg.xnat.services.archive.CatalogService;
 import org.nrg.xnat.turbine.utils.ArchivableItem;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-import org.powermock.modules.junit4.PowerMockRunnerDelegate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.TestingAuthenticationToken;
@@ -70,10 +65,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
-@PrepareForTest({Permissions.class, AutoXnatAbstractresource.class})
-@PowerMockIgnore({"org.apache.*", "java.*", "javax.*", "org.w3c.*", "com.sun.*"})
+@RunWith(SpringJUnit4ClassRunner.class)
 @WebAppConfiguration
 @ContextConfiguration(classes = {RestApiTestConfig.class})
 public class ProjectFilesystemSettingsApiTest {
@@ -81,7 +73,7 @@ public class ProjectFilesystemSettingsApiTest {
     private UserI nonAdmin;
     private MockMvc mockMvc;
 
-    private final MediaType JSON = MediaType.APPLICATION_JSON_UTF8;
+    private final MediaType JSON = MediaType.APPLICATION_JSON;
 
     // Make some ProjectFilesystemSettings POJOS for serialization (can't easily serialize mocks)
     private final ProjectFilesystemSettings pojo1 = new ProjectFilesystemSettings(1, "project", 7, true, null);
